@@ -5,7 +5,7 @@ import GalleryAlbumClient from '@/components/GalleryAlbumClient'
 import type { GalleryAlbumDetail } from '@/types/gallery'
 
 const getAlbum = async (slug: string): Promise<GalleryAlbumDetail | null> => {
-  const db = getDB()
+  const db = await getDB()
   
   // Find the published album by slug
   const album = (db.albums || []).find(

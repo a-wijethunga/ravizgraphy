@@ -5,6 +5,7 @@ import { slugify } from '@/lib/gallery-config'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
+import { supabase } from '../../../../src/lib/supabase'
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/avif']
 const VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/webm']
@@ -17,32 +18,39 @@ const parseTags = (value: FormDataEntryValue | null) =>
     .map((tag) => tag.trim())
     .filter(Boolean)
 
-// Local upload helper
-const saveLocalFile = async (
+// Supabase Storage upload helper
+const saveSupabaseFile = async (
   entityType: string,
   categoryId: string,
   file: File
 ): Promise<string> => {
   const ext = path.extname(file.name)
   const base = path.basename(file.name, ext)
-  // Ensure a unique safe filename to prevent collisions on same-name uploads
+  // Ensure a unique safe filename to prevent collisions
   const safeName = `${slugify(base)}-${Date.now()}${ext}`
 
-  const relativeDir = path.join('uploads', entityType, categoryId)
-  const absoluteDir = path.join(process.cwd(), 'public', relativeDir)
-
-  // Ensure directory exists
-  fs.mkdirSync(absoluteDir, { recursive: true })
-
-  const absolutePath = path.join(absoluteDir, safeName)
+  const storagePath = `${entityType}/${categoryId}/${safeName}`
   const buffer = Buffer.from(await file.arrayBuffer())
 
-  // Write file
-  fs.writeFileSync(absolutePath, buffer)
+  // Upload to Supabase Storage
+  const { error } = await supabase.storage
+    .from('gallery')
+    .upload(storagePath, buffer, {
+      contentType: file.type,
+      cacheControl: '3600',
+      upsert: true
+    })
 
-  // Return the public web URL
-  const webPath = `/${relativeDir.replace(/\\/g, '/')}/${safeName}`
-  return webPath
+  if (error) {
+    throw new Error(`Supabase upload failed: ${error.message}`)
+  }
+
+  // Get and return the public URL
+  const { data: { publicUrl } } = supabase.storage
+    .from('gallery')
+    .getPublicUrl(storagePath)
+
+  return publicUrl
 }
 
 export async function POST(req: Request) {
@@ -67,7 +75,7 @@ export async function POST(req: Request) {
   if (!title) return NextResponse.json({ message: 'Title is required' }, { status: 400 })
   if (!categoryId) return NextResponse.json({ message: 'Category is required' }, { status: 400 })
 
-  const db = getDB()
+  const db = await getDB()
 
   try {
     const uploaded: any[] = []
@@ -83,11 +91,11 @@ export async function POST(req: Request) {
           return NextResponse.json({ message: 'Videos must be smaller than 500MB.' }, { status: 400 })
         }
 
-        const publicUrl = await saveLocalFile('videos', categoryId, file)
+        const publicUrl = await saveSupabaseFile('videos', categoryId, file)
         let thumbnailUrl: string | null = null
 
         if (thumbnail && IMAGE_TYPES.includes(thumbnail.type) && thumbnail.size <= MAX_IMAGE_SIZE) {
-          thumbnailUrl = await saveLocalFile('video-thumbnails', categoryId, thumbnail)
+          thumbnailUrl = await saveSupabaseFile('video-thumbnails', categoryId, thumbnail)
         }
 
         const newVideo = {
@@ -132,7 +140,7 @@ export async function POST(req: Request) {
       }
 
       const entityFolder = kind === 'cover' ? 'covers' : 'photos'
-      const publicUrl = await saveLocalFile(entityFolder, categoryId, file)
+      const publicUrl = await saveSupabaseFile(entityFolder, categoryId, file)
 
       if (kind === 'cover') {
         if (!albumId) return NextResponse.json({ message: 'Album id is required for cover uploads.' }, { status: 400 })
@@ -195,7 +203,7 @@ export async function POST(req: Request) {
       created_at: new Date().toISOString(),
     })
 
-    saveDB(db)
+    await saveDB(db)
     return NextResponse.json({ success: true, uploaded })
   } catch (error: any) {
     console.error('Upload error:', error)

@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ message: 'No reorder items supplied' }, { status: 400 })
   }
 
-  const db = getDB()
+  const db = await getDB()
 
   try {
     if (entity === 'album_photos') {
@@ -50,7 +50,7 @@ export async function POST(req: Request) {
       }
     }
 
-    saveDB(db)
+    await saveDB(db)
     return NextResponse.json({ success: true })
   } catch (error: any) {
     console.error('Reorder error:', error)

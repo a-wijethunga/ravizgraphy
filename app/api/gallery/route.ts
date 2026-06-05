@@ -3,7 +3,7 @@ import { getDB } from '@lib/local-db'
 
 export async function GET() {
   try {
-    const db = getDB()
+    const db = await getDB()
     const photos = db.photos || []
     
     // Map to the expected structure

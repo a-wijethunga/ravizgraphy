@@ -29,7 +29,7 @@ const sortAlbums = (albums: any[], sort: GallerySort | null) => {
 }
 
 export async function GET(req: Request) {
-  const db = getDB()
+  const db = await getDB()
 
   const url = new URL(req.url)
   const search = url.searchParams.get('search')?.trim().toLowerCase()

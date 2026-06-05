@@ -14,7 +14,7 @@ export default async function AdminDashboardPage() {
     redirect('/admin/login')
   }
 
-  const db = getDB()
+  const db = await getDB()
 
   const stats = {
     albums: db.albums.length,

@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import toast from 'react-hot-toast'
 import { z } from 'zod'
+import { supabase } from '../../../src/lib/supabase'
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -41,25 +42,29 @@ export default function AdminLoginPage() {
 
   const onSubmit = async (values: LoginValues) => {
     setLoading(true)
-    // Simulate slight network delay for premium feel
-    await new Promise((resolve) => setTimeout(resolve, 600))
 
-    if (values.email === 'admin@localhost.com' && values.password === 'Admin123456') {
-      // Save session in localStorage
-      localStorage.setItem(
-        'admin_session',
-        JSON.stringify({ authenticated: true, role: 'admin' })
-      )
-      // Set the session cookie so the middleware and server-side routes recognize it
-      document.cookie = 'admin_authenticated=true; path=/; max-age=86400; SameSite=Lax'
-      
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: values.email,
+      password: values.password,
+    })
+
+    if (error) {
       setLoading(false)
-      toast.success('Welcome back')
-      router.push('/admin/dashboard')
-    } else {
-      setLoading(false)
-      toast.error('Invalid email or password')
+      toast.error(error.message || 'Invalid email or password')
+      return
     }
+
+    // Save session in localStorage
+    localStorage.setItem(
+      'admin_session',
+      JSON.stringify({ authenticated: true, role: 'admin', user: data.user })
+    )
+    // Set the session cookie so the middleware and server-side routes recognize it
+    document.cookie = 'admin_authenticated=true; path=/; max-age=86400; SameSite=Lax'
+    
+    setLoading(false)
+    toast.success('Welcome back')
+    router.push('/admin/dashboard')
   }
 
   const inputClasses =

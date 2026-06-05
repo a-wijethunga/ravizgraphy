@@ -12,7 +12,7 @@ export async function GET(req: Request) {
   const search = url.searchParams.get('search')?.trim().toLowerCase()
   const filter = url.searchParams.get('filter')?.trim()
 
-  const db = getDB()
+  const db = await getDB()
 
   // Get raw items
   let albums = [...(db.albums || [])]

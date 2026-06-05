@@ -5,6 +5,21 @@ import { getDB, saveDB } from '@lib/local-db'
 import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
+import { supabase } from '../../../../src/lib/supabase'
+
+const deleteSupabaseStorageFile = async (url: string) => {
+  try {
+    const parts = url.split('/storage/v1/object/public/gallery/')
+    if (parts.length === 2) {
+      const storagePath = parts[1]
+      if (storagePath) {
+        await supabase.storage.from('gallery').remove([storagePath])
+      }
+    }
+  } catch (e) {
+    console.error('Failed to delete storage file:', e)
+  }
+}
 
 const ENTITY_TABLES = new Set(['categories', 'subcategories', 'albums', 'photos', 'videos', 'messages', 'settings'])
 
@@ -96,7 +111,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ entity: 
   const auth = await requireGalleryAdmin()
   if (!auth.ok) return NextResponse.json({ message: auth.message }, { status: auth.status })
 
-  const db = getDB()
+  const db = await getDB()
 
   if (!ENTITY_TABLES.has(entity) && entity !== 'content') {
     return NextResponse.json({ message: 'Unsupported entity' }, { status: 400 })
@@ -153,7 +168,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ entity:
 
   const { action = 'create', data = body } = body as { action?: string; data?: any }
 
-  const db = getDB()
+  const db = await getDB()
 
   try {
     if (entity === 'content' && action === 'update') {
@@ -169,7 +184,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ entity:
           db.site_content.push(row)
         }
       }
-      saveDB(db)
+      await saveDB(db)
       return NextResponse.json({ success: true })
     }
 
@@ -196,7 +211,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ entity:
         db.album_videos = db.album_videos.filter((v) => !ids.includes(String(v.video_id)))
       }
 
-      saveDB(db)
+      await saveDB(db)
       return NextResponse.json({ success: true })
     }
 
@@ -212,7 +227,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ entity:
         }
       }
 
-      saveDB(db)
+      await saveDB(db)
       return NextResponse.json({ success: true })
     }
 
@@ -236,7 +251,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ entity:
         db.album_videos.push({ album_id: albumId, video_id, sort_order: index })
       })
 
-      saveDB(db)
+      await saveDB(db)
       return NextResponse.json({ success: true })
     }
 
@@ -293,7 +308,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ entity:
       created_at: new Date().toISOString(),
     })
 
-    saveDB(db)
+    await saveDB(db)
     return NextResponse.json({ success: true, data: responseRecord })
   } catch (error: any) {
     console.error('Mutation error:', error)
@@ -313,7 +328,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ entit
   const id = new URL(req.url).searchParams.get('id')
   if (!id) return NextResponse.json({ message: 'Missing id parameter' }, { status: 400 })
 
-  const db = getDB()
+  const db = await getDB()
 
   try {
     const table = (db as any)[entity] || []
@@ -324,29 +339,38 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ entit
 
     const item = table[existingIdx]
 
-    // If there is an associated local file in uploads, delete it
+    // If there is an associated file, delete it from storage/local filesystem
     if (entity === 'photos' || entity === 'videos') {
       const url = item.public_url || item.cover_url
-      if (url && url.startsWith('/uploads/')) {
-        const filePath = path.join(process.cwd(), 'public', url)
-        if (fs.existsSync(filePath)) {
-          try {
-            fs.unlinkSync(filePath)
-          } catch (e) {
-            console.error('Failed to delete physical file:', e)
+      if (url) {
+        if (url.startsWith('/uploads/')) {
+          const filePath = path.join(process.cwd(), 'public', url)
+          if (fs.existsSync(filePath)) {
+            try {
+              fs.unlinkSync(filePath)
+            } catch (e) {
+              console.error('Failed to delete physical file:', e)
+            }
           }
+        } else if (url.includes('/storage/v1/object/public/gallery/')) {
+          await deleteSupabaseStorageFile(url)
         }
       }
       
       // Also delete video thumbnail if exists
-      if (entity === 'videos' && item.thumbnail_url && item.thumbnail_url.startsWith('/uploads/')) {
-        const thumbPath = path.join(process.cwd(), 'public', item.thumbnail_url)
-        if (fs.existsSync(thumbPath)) {
-          try {
-            fs.unlinkSync(thumbPath)
-          } catch (e) {
-            console.error('Failed to delete video thumbnail file:', e)
+      if (entity === 'videos' && item.thumbnail_url) {
+        const thumbUrl = item.thumbnail_url
+        if (thumbUrl.startsWith('/uploads/')) {
+          const thumbPath = path.join(process.cwd(), 'public', thumbUrl)
+          if (fs.existsSync(thumbPath)) {
+            try {
+              fs.unlinkSync(thumbPath)
+            } catch (e) {
+              console.error('Failed to delete video thumbnail file:', e)
+            }
           }
+        } else if (thumbUrl.includes('/storage/v1/object/public/gallery/')) {
+          await deleteSupabaseStorageFile(thumbUrl)
         }
       }
     }
@@ -364,7 +388,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ entit
       db.album_videos = db.album_videos.filter((v) => String(v.video_id) !== String(id))
     }
 
-    saveDB(db)
+    await saveDB(db)
     return NextResponse.json({ success: true })
   } catch (error: any) {
     console.error('Delete error:', error)

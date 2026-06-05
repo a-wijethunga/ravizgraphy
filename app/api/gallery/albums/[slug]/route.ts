@@ -3,7 +3,7 @@ import { getDB } from '@lib/local-db'
 
 export async function GET(_req: Request, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
-  const db = getDB()
+  const db = await getDB()
 
   // Find the published album by slug
   const album = (db.albums || []).find(

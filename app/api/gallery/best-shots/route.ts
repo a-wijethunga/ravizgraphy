@@ -60,7 +60,7 @@ const defaultPhotos = [
 
 export async function GET() {
   try {
-    const db = getDB()
+    const db = await getDB()
     const bestShotsRow = (db.site_content || []).find((row: any) => row.key === 'best_shots')
 
     if (bestShotsRow && bestShotsRow.value) {

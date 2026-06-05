@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type DragEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
+import { supabase } from '../../../src/lib/supabase'
 import {
   BarChart3,
   CheckCircle2,
@@ -382,6 +383,11 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
   }, [overview.subcategories, subcatSearch])
 
   const signOut = async () => {
+    try {
+      await supabase.auth.signOut()
+    } catch (e) {
+      console.error('Error signing out of Supabase:', e)
+    }
     localStorage.removeItem('admin_session')
     document.cookie = 'admin_authenticated=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
     toast.success('Logged out successfully')
