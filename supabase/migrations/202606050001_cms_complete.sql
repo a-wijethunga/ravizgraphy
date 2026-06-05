@@ -13,12 +13,14 @@ drop table if exists public.activity_logs cascade;
 drop table if exists public.media cascade;
 drop table if exists public.admins cascade;
 
+-- Admins Table
 create table if not exists public.admins (
   id bigserial primary key,
   user_id uuid unique not null references auth.users(id) on delete cascade,
   created_at timestamptz default now()
 );
 
+-- Categories Table
 create table if not exists public.categories (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -30,6 +32,7 @@ create table if not exists public.categories (
   constraint categories_slug_format check (slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$')
 );
 
+-- Subcategories Table
 create table if not exists public.subcategories (
   id uuid primary key default gen_random_uuid(),
   category_id uuid not null references public.categories(id) on delete cascade,
@@ -43,6 +46,7 @@ create table if not exists public.subcategories (
   constraint subcategories_slug_format check (slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$')
 );
 
+-- Albums Table (Temporary definition without foreign keys to photos to avoid dependency loops)
 create table if not exists public.albums (
   id uuid primary key default gen_random_uuid(),
   title text not null,
@@ -50,7 +54,7 @@ create table if not exists public.albums (
   description text,
   category_id uuid not null references public.categories(id) on delete restrict,
   subcategory_id uuid references public.subcategories(id) on delete set null,
-  cover_photo_id uuid,
+  cover_photo_id uuid, -- Reference added later
   cover_url text,
   featured boolean not null default false,
   published boolean not null default true,
@@ -65,6 +69,7 @@ create table if not exists public.albums (
   constraint albums_slug_format check (slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$')
 );
 
+-- Photos Table
 create table if not exists public.photos (
   id uuid primary key default gen_random_uuid(),
   title text not null,
@@ -89,6 +94,7 @@ create table if not exists public.photos (
   unique (storage_bucket, storage_path)
 );
 
+-- Videos Table
 create table if not exists public.videos (
   id uuid primary key default gen_random_uuid(),
   title text not null,
@@ -114,6 +120,12 @@ create table if not exists public.videos (
   unique (storage_bucket, storage_path)
 );
 
+-- Link cover_photo_id of albums to photos
+alter table public.albums
+  add constraint fk_albums_cover_photo
+  foreign key (cover_photo_id) references public.photos(id) on delete set null;
+
+-- Album Photos junction table
 create table if not exists public.album_photos (
   album_id uuid not null references public.albums(id) on delete cascade,
   photo_id uuid not null references public.photos(id) on delete cascade,
@@ -122,6 +134,7 @@ create table if not exists public.album_photos (
   primary key (album_id, photo_id)
 );
 
+-- Album Videos junction table
 create table if not exists public.album_videos (
   album_id uuid not null references public.albums(id) on delete cascade,
   video_id uuid not null references public.videos(id) on delete cascade,
@@ -130,6 +143,7 @@ create table if not exists public.album_videos (
   primary key (album_id, video_id)
 );
 
+-- Activity Logs Table
 create table if not exists public.activity_logs (
   id uuid primary key default gen_random_uuid(),
   actor_id uuid references auth.users(id) on delete set null,
@@ -140,6 +154,7 @@ create table if not exists public.activity_logs (
   created_at timestamptz not null default now()
 );
 
+-- Messages Table
 create table if not exists public.messages (
   id uuid primary key default gen_random_uuid(),
   name text not null,
@@ -151,6 +166,7 @@ create table if not exists public.messages (
   created_at timestamptz not null default now()
 );
 
+-- Settings Table
 create table if not exists public.settings (
   id text primary key default 'global',
   website_name text,
@@ -170,12 +186,28 @@ create table if not exists public.settings (
   updated_at timestamptz not null default now()
 );
 
+-- Site Content Table
 create table if not exists public.site_content (
   key text primary key,
   value text not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Performance Indexes
+create index if not exists idx_categories_sort on public.categories(sort_order, name);
+create index if not exists idx_subcategories_category on public.subcategories(category_id, sort_order);
+create index if not exists idx_albums_public on public.albums(published, featured, event_date desc, created_at desc);
+create index if not exists idx_albums_category on public.albums(category_id, subcategory_id);
+create index if not exists idx_albums_search on public.albums using gin (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(description, '') || ' ' || coalesce(seo_title, '')));
+create index if not exists idx_photos_public on public.photos(published, featured, created_at desc);
+create index if not exists idx_photos_category on public.photos(category_id, subcategory_id);
+create index if not exists idx_photos_search on public.photos using gin (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(description, '') || ' ' || coalesce(alt_text, '') || ' ' || array_to_string(tags, ' ')));
+create index if not exists idx_videos_public on public.videos(published, featured, created_at desc);
+create index if not exists idx_videos_category on public.videos(category_id, subcategory_id);
+create index if not exists idx_album_photos_order on public.album_photos(album_id, sort_order);
+create index if not exists idx_album_videos_order on public.album_videos(album_id, sort_order);
+create index if not exists idx_activity_logs_created on public.activity_logs(created_at desc);
 
 -- Enable RLS for all tables
 alter table public.admins enable row level security;
