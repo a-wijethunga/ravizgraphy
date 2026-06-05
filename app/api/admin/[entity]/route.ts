@@ -5,15 +5,14 @@ import { getDB, saveDB } from '@lib/local-db'
 import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
-import { supabase } from '@/lib/supabase'
 
-const deleteSupabaseStorageFile = async (url: string) => {
+const deleteSupabaseStorageFile = async (supabaseClient: any, url: string) => {
   try {
     const parts = url.split('/storage/v1/object/public/gallery/')
     if (parts.length === 2) {
       const storagePath = parts[1]
       if (storagePath) {
-        await supabase.storage.from('gallery').remove([storagePath])
+        await supabaseClient.storage.from('gallery').remove([storagePath])
       }
     }
   } catch (e) {
@@ -353,7 +352,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ entit
             }
           }
         } else if (url.includes('/storage/v1/object/public/gallery/')) {
-          await deleteSupabaseStorageFile(url)
+          await deleteSupabaseStorageFile(auth.adminClient, url)
         }
       }
       
@@ -370,7 +369,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ entit
             }
           }
         } else if (thumbUrl.includes('/storage/v1/object/public/gallery/')) {
-          await deleteSupabaseStorageFile(thumbUrl)
+          await deleteSupabaseStorageFile(auth.adminClient, thumbUrl)
         }
       }
     }

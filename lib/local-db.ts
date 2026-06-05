@@ -1,5 +1,5 @@
 import 'server-only'
-import { supabase } from '@/lib/supabase'
+import { getSupabaseClient } from '@/lib/supabaseServer'
 import fs from 'fs'
 import path from 'path'
 import { slugify } from '@/lib/gallery-config'
@@ -41,6 +41,7 @@ export interface LocalDB {
 }
 
 export async function getDB(): Promise<LocalDB> {
+  const supabase = await getSupabaseClient()
   const localData = readLocalJSON()
   const db: LocalDB = {
     categories: localData.categories || [],
@@ -152,6 +153,7 @@ export async function getDB(): Promise<LocalDB> {
 }
 
 export async function saveDB(db: LocalDB) {
+  const supabase = await getSupabaseClient()
   const localData = {
     categories: db.categories || [],
     subcategories: db.subcategories || [],

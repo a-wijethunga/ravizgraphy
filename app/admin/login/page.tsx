@@ -27,17 +27,29 @@ export default function AdminLoginPage() {
 
   useEffect(() => {
     // Check if the user is already authenticated
-    const sessionStr = localStorage.getItem('admin_session')
-    if (sessionStr) {
-      try {
-        const session = JSON.parse(sessionStr)
-        if (session && session.authenticated && session.role === 'admin') {
-          router.replace('/admin/dashboard')
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        localStorage.setItem(
+          'admin_session',
+          JSON.stringify({ authenticated: true, role: 'admin', user: session.user })
+        )
+        router.replace('/admin/dashboard')
+      } else {
+        const sessionStr = localStorage.getItem('admin_session')
+        if (sessionStr) {
+          try {
+            const sessionData = JSON.parse(sessionStr)
+            if (sessionData && sessionData.authenticated && sessionData.role === 'admin') {
+              router.replace('/admin/dashboard')
+            }
+          } catch (e) {
+            localStorage.removeItem('admin_session')
+          }
         }
-      } catch (e) {
-        localStorage.removeItem('admin_session')
       }
     }
+    checkSession()
   }, [router])
 
   const onSubmit = async (values: LoginValues) => {
@@ -54,16 +66,11 @@ export default function AdminLoginPage() {
       return
     }
 
-    // Save session in localStorage
+    // Save session in localStorage for UI state representation
     localStorage.setItem(
       'admin_session',
       JSON.stringify({ authenticated: true, role: 'admin', user: data.user })
     )
-    // Set the session cookie so the middleware and server-side routes recognize it
-    document.cookie = 'admin_authenticated=true; path=/; max-age=86400; SameSite=Lax'
-    if (data.session?.access_token) {
-      document.cookie = `sb-access-token=${data.session.access_token}; path=/; max-age=86400; SameSite=Lax`
-    }
     
     setLoading(false)
     toast.success('Welcome back')

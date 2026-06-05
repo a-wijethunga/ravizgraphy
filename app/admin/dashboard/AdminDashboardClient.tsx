@@ -389,8 +389,6 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
       console.error('Error signing out of Supabase:', e)
     }
     localStorage.removeItem('admin_session')
-    document.cookie = 'admin_authenticated=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
-    document.cookie = 'sb-access-token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'
     toast.success('Logged out successfully')
     router.push('/admin/login')
   }

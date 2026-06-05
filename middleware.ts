@@ -1,52 +1,47 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { createServerClient } from '@supabase/ssr'
 
-async function verifySupabaseToken(token: string): Promise<boolean> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-  
-  if (!url || !anonKey) return false
-  
-  let baseUrl = url
-  if (baseUrl.endsWith('/rest/v1/')) {
-    baseUrl = baseUrl.slice(0, -9)
-  } else if (baseUrl.endsWith('/rest/v1')) {
-    baseUrl = baseUrl.slice(0, -8)
-  }
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
 
-  try {
-    const res = await fetch(`${baseUrl}/auth/v1/user`, {
-      method: 'GET',
-      headers: {
-        'apikey': anonKey,
-        'Authorization': `Bearer ${token}`
-      }
-    })
-    return res.status === 200
-  } catch (e) {
-    console.error('Error verifying token in middleware:', e)
-    return false
-  }
-}
+  let response = NextResponse.next({
+    request,
+  })
 
-export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl
-  const token = req.cookies.get('sb-access-token')?.value
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
+          response = NextResponse.next({
+            request,
+          })
+          cookiesToSet.forEach(({ name, value, options }) =>
+            response.cookies.set(name, value, options)
+          )
+        },
+      },
+    }
+  )
 
-  let isAuthenticated = false
-  if (token) {
-    isAuthenticated = await verifySupabaseToken(token)
-  }
+  const { data: { user } } = await supabase.auth.getUser()
+  const isAuthenticated = !!user
 
   if (pathname === '/admin') {
     return NextResponse.redirect(
-      new URL(isAuthenticated ? '/admin/dashboard' : '/admin/login', req.url)
+      new URL(isAuthenticated ? '/admin/dashboard' : '/admin/login', request.url)
     )
   }
 
   if (pathname.startsWith('/admin') && pathname !== '/admin/login') {
     if (!isAuthenticated) {
-      return NextResponse.redirect(new URL('/admin/login', req.url))
+      return NextResponse.redirect(new URL('/admin/login', request.url))
     }
   }
 
@@ -56,7 +51,7 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  return NextResponse.next()
+  return response
 }
 
 export const config = {

@@ -5,7 +5,6 @@ import { slugify } from '@/lib/gallery-config'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
-import { supabase } from '@/lib/supabase'
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/avif']
 const VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/webm']
@@ -20,6 +19,7 @@ const parseTags = (value: FormDataEntryValue | null) =>
 
 // Supabase Storage upload helper
 const saveSupabaseFile = async (
+  supabaseClient: any,
   entityType: string,
   categoryId: string,
   file: File
@@ -33,7 +33,7 @@ const saveSupabaseFile = async (
   const buffer = Buffer.from(await file.arrayBuffer())
 
   // Upload to Supabase Storage
-  const { error } = await supabase.storage
+  const { error } = await supabaseClient.storage
     .from('gallery')
     .upload(storagePath, buffer, {
       contentType: file.type,
@@ -46,7 +46,7 @@ const saveSupabaseFile = async (
   }
 
   // Get and return the public URL
-  const { data: { publicUrl } } = supabase.storage
+  const { data: { publicUrl } } = supabaseClient.storage
     .from('gallery')
     .getPublicUrl(storagePath)
 
@@ -91,11 +91,11 @@ export async function POST(req: Request) {
           return NextResponse.json({ message: 'Videos must be smaller than 500MB.' }, { status: 400 })
         }
 
-        const publicUrl = await saveSupabaseFile('videos', categoryId, file)
+        const publicUrl = await saveSupabaseFile(auth.adminClient, 'videos', categoryId, file)
         let thumbnailUrl: string | null = null
 
         if (thumbnail && IMAGE_TYPES.includes(thumbnail.type) && thumbnail.size <= MAX_IMAGE_SIZE) {
-          thumbnailUrl = await saveSupabaseFile('video-thumbnails', categoryId, thumbnail)
+          thumbnailUrl = await saveSupabaseFile(auth.adminClient, 'video-thumbnails', categoryId, thumbnail)
         }
 
         const newVideo = {
@@ -140,7 +140,7 @@ export async function POST(req: Request) {
       }
 
       const entityFolder = kind === 'cover' ? 'covers' : 'photos'
-      const publicUrl = await saveSupabaseFile(entityFolder, categoryId, file)
+      const publicUrl = await saveSupabaseFile(auth.adminClient, entityFolder, categoryId, file)
 
       if (kind === 'cover') {
         if (!albumId) return NextResponse.json({ message: 'Album id is required for cover uploads.' }, { status: 400 })
