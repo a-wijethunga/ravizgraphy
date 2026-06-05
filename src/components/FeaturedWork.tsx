@@ -48,9 +48,14 @@ const FeaturedWork: React.FC = () => {
   const [config, setConfig] = useState<BestShotsConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
+  const [isMounted, setIsMounted] = useState(false)
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   const { scrollYProgress } = useScroll({
-    target: sectionRef,
+    target: (isMounted && !loading) ? sectionRef : undefined,
     offset: ['start end', 'end start'],
   })
 

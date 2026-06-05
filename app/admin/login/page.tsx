@@ -61,6 +61,9 @@ export default function AdminLoginPage() {
     )
     // Set the session cookie so the middleware and server-side routes recognize it
     document.cookie = 'admin_authenticated=true; path=/; max-age=86400; SameSite=Lax'
+    if (data.session?.access_token) {
+      document.cookie = `sb-access-token=${data.session.access_token}; path=/; max-age=86400; SameSite=Lax`
+    }
     
     setLoading(false)
     toast.success('Welcome back')

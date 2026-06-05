@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { motion, useScroll, useTransform } from 'framer-motion'
 import heroPoster from '../assets/hero.png'
 
@@ -9,9 +9,10 @@ const heroVideo = '/videos/hero.mp4'
 const Hero: React.FC = () => {
   const heroRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const [isMounted, setIsMounted] = useState(false)
 
   const { scrollYProgress } = useScroll({
-    target: heroRef,
+    target: isMounted ? heroRef : undefined,
     offset: ["start start", "end start"]
   })
 
@@ -21,6 +22,7 @@ const Hero: React.FC = () => {
   const yText = useTransform(scrollYProgress, [0, 1], ["0%", "50%"])
 
   useEffect(() => {
+    setIsMounted(true)
     const video = videoRef.current
     if (video) {
       // Force native DOM properties to guarantee browser autoplay

@@ -5,7 +5,7 @@ import { slugify } from '@/lib/gallery-config'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
-import { supabase } from '../../../../src/lib/supabase'
+import { supabase } from '@/lib/supabase'
 
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/avif']
 const VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/webm']

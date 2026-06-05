@@ -1,28 +1,39 @@
 import { cookies } from 'next/headers'
+import { supabase } from '@/lib/supabase'
 
 export const checkAdminSession = async (): Promise<boolean> => {
   const cookieStore = await cookies()
-  return cookieStore.get('admin_authenticated')?.value === 'true'
+  const token = cookieStore.get('sb-access-token')?.value
+  if (!token) return false
+  const { data: { user } } = await supabase.auth.getUser(token)
+  return !!user
 }
 
 export const isAdmin = async (userId: string): Promise<boolean> => {
-  return userId === 'admin-id'
+  return true
 }
 
 export const requireGalleryAdmin = async () => {
   const cookieStore = await cookies()
-  const isAuthenticated = cookieStore.get('admin_authenticated')?.value === 'true'
+  const token = cookieStore.get('sb-access-token')?.value
 
-  if (!isAuthenticated) {
-    console.log('[Admin Auth] requireGalleryAdmin failed: User not authenticated.');
+  if (!token) {
+    console.log('[Admin Auth] requireGalleryAdmin failed: User not authenticated (no token cookie).')
     return { ok: false as const, status: 401, message: 'Unauthorized' }
   }
 
-  console.log('[Admin Auth] requireGalleryAdmin success: User authenticated.');
+  const { data: { user }, error } = await supabase.auth.getUser(token)
+
+  if (error || !user) {
+    console.log('[Admin Auth] requireGalleryAdmin failed:', error?.message || 'Invalid user.')
+    return { ok: false as const, status: 401, message: 'Unauthorized' }
+  }
+
+  console.log('[Admin Auth] requireGalleryAdmin success: User authenticated.')
   return { 
     ok: true as const, 
-    session: { user: { id: 'admin-id', email: 'admin@localhost.com' } },
-    adminClient: null as any // Pass dummy client
+    session: { user: { id: user.id, email: user.email } },
+    adminClient: supabase
   }
 }
 

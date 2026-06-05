@@ -5,7 +5,7 @@ import { getDB, saveDB } from '@lib/local-db'
 import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
-import { supabase } from '../../../../src/lib/supabase'
+import { supabase } from '@/lib/supabase'
 
 const deleteSupabaseStorageFile = async (url: string) => {
   try {
