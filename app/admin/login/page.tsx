@@ -114,3 +114,6 @@ export default function AdminLoginPage() {
     </main>
   )
 }
+
+console.log("SUPABASE URL:", process.env.NEXT_PUBLIC_SUPABASE_URL)
+console.log("KEY EXISTS:", !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
