@@ -90,6 +90,9 @@ export interface GalleryVideo {
   updated_at: string
   category?: Pick<GalleryCategory, 'id' | 'name' | 'slug'>
   subcategory?: Pick<GallerySubcategory, 'id' | 'name' | 'slug'> | null
+  youtube_url?: string | null
+  youtube_id?: string | null
+  video_type?: string | null
 }
 
 export interface GalleryAlbumDetail extends GalleryAlbum {

@@ -9,6 +9,20 @@ export async function middleware(request: NextRequest) {
     request,
   })
 
+  // Optimize auth checks: early exit if no Supabase session cookie is present
+  const hasSessionCookie = request.cookies.getAll().some(c => c.name.startsWith('sb-'))
+
+  if (!hasSessionCookie) {
+    if (pathname === '/admin' || (pathname.startsWith('/admin') && pathname !== '/admin/login')) {
+      return NextResponse.redirect(new URL('/admin/login', request.url))
+    }
+    if (pathname.startsWith('/api/admin')) {
+      return NextResponse.json({ message: 'Unauthorized' }, { status: 401 })
+    }
+    // Allow /admin/login to load without an session cookie
+    return response
+  }
+
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -57,6 +71,3 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: ['/admin/:path*', '/api/admin/:path*'],
 }
-
-
-

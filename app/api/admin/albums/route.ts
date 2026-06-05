@@ -4,19 +4,62 @@ import { slugify } from '@/lib/gallery-config'
 import crypto from 'crypto'
 import { revalidatePath } from 'next/cache'
 
+const ALBUM_SELECT_COLUMNS = 'id, title, slug, description, category_id, subcategory_id, cover_photo_id, cover_url, featured, published, seo_title, seo_description, event_date, parent_id, sort_order, created_by, created_at, updated_at'
+
 export async function GET(req: Request) {
   const auth = await requireGalleryAdmin()
   if (!auth.ok) return NextResponse.json({ message: auth.message }, { status: auth.status })
   const supabase = auth.adminClient
 
-  const { data: albums, error } = await supabase
+  const url = new URL(req.url)
+  const search = url.searchParams.get('search')?.trim()
+  const filter = url.searchParams.get('filter')?.trim()
+  const page = url.searchParams.has('page') ? Number(url.searchParams.get('page') ?? 1) : null
+  const limit = url.searchParams.has('limit') ? Number(url.searchParams.get('limit') ?? 12) : null
+
+  let query = supabase
     .from('albums')
-    .select('*')
+    .select(ALBUM_SELECT_COLUMNS, { count: 'exact' })
     .order('sort_order', { ascending: true })
+
+  // Apply search in database
+  if (search) {
+    query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%,slug.ilike.%${search}%`)
+  }
+
+  // Apply filter in database
+  if (filter) {
+    if (filter === 'featured') {
+      query = query.eq('featured', true)
+    } else if (filter === 'published') {
+      query = query.eq('published', true)
+    } else if (filter === 'drafts') {
+      query = query.eq('published', false)
+    }
+  }
+
+  // Apply pagination range if requested
+  if (page && limit) {
+    const from = (page - 1) * limit
+    const to = from + limit - 1
+    query = query.range(from, to)
+  }
+
+  const { data: albums, error, count } = await query
 
   if (error) {
     console.error('Failed to get albums from Supabase:', error.message)
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+  }
+
+  if (page && limit) {
+    return NextResponse.json({
+      data: albums || [],
+      total: count || 0,
+      page,
+      limit,
+      totalPages: Math.ceil((count || 0) / limit)
+    })
   }
 
   return NextResponse.json(albums || [])
@@ -45,6 +88,7 @@ export async function POST(req: Request) {
       category_id: data.category_id || null,
       subcategory_id: data.subcategory_id || null,
       cover_url: data.cover_url || null,
+      cover_photo_id: data.cover_photo_id || null,
       featured: Boolean(data.featured),
       published: data.published !== false,
       seo_title: data.seo_title || null,
@@ -61,7 +105,7 @@ export async function POST(req: Request) {
         .from('albums')
         .update(payload)
         .eq('id', id)
-        .select()
+        .select(ALBUM_SELECT_COLUMNS)
         .single()
       if (error) {
         console.error('Failed to update album in Supabase:', error.message)
@@ -79,7 +123,7 @@ export async function POST(req: Request) {
           id,
           created_at: data.created_at || now
         })
-        .select()
+        .select(ALBUM_SELECT_COLUMNS)
         .single()
       if (error) {
         console.error('Failed to insert album in Supabase:', error.message)

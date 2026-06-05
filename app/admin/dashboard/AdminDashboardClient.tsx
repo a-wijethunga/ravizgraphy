@@ -294,46 +294,51 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
   const [draggedPhotoIdx, setDraggedPhotoIdx] = useState<number | null>(null)
   const [showBestShotsLibraryPicker, setShowBestShotsLibraryPicker] = useState(false)
 
+  // Pagination page/limit states
+  const [albumsPage, setAlbumsPage] = useState(1)
+  const [albumsTotalPages, setAlbumsTotalPages] = useState(1)
+  const [albumsTotalCount, setAlbumsTotalCount] = useState(0)
+
+  const [photosPage, setPhotosPage] = useState(1)
+  const [photosTotalPages, setPhotosTotalPages] = useState(1)
+  const [photosTotalCount, setPhotosTotalCount] = useState(0)
+
+  const [videosPage, setVideosPage] = useState(1)
+  const [videosTotalPages, setVideosTotalPages] = useState(1)
+  const [videosTotalCount, setVideosTotalCount] = useState(0)
+
+  const [messagesPage, setMessagesPage] = useState(1)
+  const [messagesTotalPages, setMessagesTotalPages] = useState(1)
+  const [messagesTotalCount, setMessagesTotalCount] = useState(0)
+
+  const [logsPage, setLogsPage] = useState(1)
+  const [logsTotalPages, setLogsTotalPages] = useState(1)
+  const [logsTotalCount, setLogsTotalCount] = useState(0)
+
+  const [paginatedAlbums, setPaginatedAlbums] = useState<GalleryAlbum[]>([])
+  const [paginatedPhotos, setPaginatedPhotos] = useState<GalleryPhoto[]>([])
+  const [paginatedVideos, setPaginatedVideos] = useState<GalleryVideo[]>([])
+  const [paginatedMessages, setPaginatedMessages] = useState<any[]>([])
+  const [paginatedLogs, setPaginatedLogs] = useState<any[]>([])
+
+  const ALBUMS_LIMIT = 12
+  const PHOTOS_LIMIT = 20
+  const VIDEOS_LIMIT = 12
+  const MESSAGES_LIMIT = 15
+  const LOGS_LIMIT = 20
+
   const loadOverview = async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams()
-      if (searchText) params.set('search', searchText)
-      if (filterState !== 'all') params.set('filter', filterState)
-      
-      const response = await fetch(`/api/admin/gallery?${params.toString()}`)
+      const response = await fetch(`/api/admin/gallery`)
       const body = await response.json()
       if (!response.ok) throw new Error(body.message || 'Unable to load gallery CMS data')
       setOverview(body)
       
-      const [msgRes, settingsRes, contentRes] = await Promise.all([
-        fetch('/api/admin/messages'),
-        fetch('/api/admin/settings'),
-        fetch('/api/admin/content')
-      ])
-      
-      if (msgRes.ok) setInboundMessages(await msgRes.json())
-      if (settingsRes.ok) {
-        const setts = await settingsRes.json()
-        if (setts?.[0]) setSettingsForm(setts[0])
-      }
-      if (contentRes.ok) {
-        const content = await contentRes.json()
-        const bestShotsRow = content.find((row: any) => row.key === 'best_shots')
-        if (bestShotsRow && bestShotsRow.value) {
-          try {
-            setBestShotsForm(JSON.parse(bestShotsRow.value))
-          } catch (e) {
-            console.error('Failed to parse best shots content', e)
-          }
-        }
-      }
-      
-      if (body.activity_logs) {
-        setActivityLogs(body.activity_logs)
-      } else {
-        const actRes = await fetch('/api/admin/activity_logs')
-        if (actRes.ok) setActivityLogs(await actRes.json())
+      const actRes = await fetch('/api/admin/activity_logs?page=1&limit=5')
+      if (actRes.ok) {
+        const logsData = await actRes.json()
+        setActivityLogs(logsData.data || [])
       }
     } catch (error: any) {
       toast.error(error.message || 'Unable to load gallery CMS data')
@@ -342,13 +347,241 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
     }
   }
 
+  const loadAlbums = async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      params.set('page', String(albumsPage))
+      params.set('limit', String(ALBUMS_LIMIT))
+      if (searchText) params.set('search', searchText)
+      if (filterState !== 'all') params.set('filter', filterState)
+      const res = await fetch(`/api/admin/albums?${params.toString()}`)
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.message || 'Failed to load albums')
+      setPaginatedAlbums(body.data || [])
+      setAlbumsTotalPages(body.totalPages || 1)
+      setAlbumsTotalCount(body.total || 0)
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to load albums')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadPhotos = async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      params.set('page', String(photosPage))
+      params.set('limit', String(PHOTOS_LIMIT))
+      if (searchText) params.set('search', searchText)
+      if (filterState !== 'all') params.set('filter', filterState)
+      const res = await fetch(`/api/admin/photos?${params.toString()}`)
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.message || 'Failed to load photos')
+      setPaginatedPhotos(body.data || [])
+      setPhotosTotalPages(body.totalPages || 1)
+      setPhotosTotalCount(body.total || 0)
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to load photos')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadVideos = async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      params.set('page', String(videosPage))
+      params.set('limit', String(VIDEOS_LIMIT))
+      if (searchText) params.set('search', searchText)
+      if (filterState !== 'all') params.set('filter', filterState)
+      const res = await fetch(`/api/admin/videos?${params.toString()}`)
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.message || 'Failed to load videos')
+      setPaginatedVideos(body.data || [])
+      setVideosTotalPages(body.totalPages || 1)
+      setVideosTotalCount(body.total || 0)
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to load videos')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadMessages = async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      params.set('page', String(messagesPage))
+      params.set('limit', String(MESSAGES_LIMIT))
+      if (searchText) params.set('search', searchText)
+      const res = await fetch(`/api/admin/messages?${params.toString()}`)
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.message || 'Failed to load messages')
+      setPaginatedMessages(body.data || [])
+      setMessagesTotalPages(body.totalPages || 1)
+      setMessagesTotalCount(body.total || 0)
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to load messages')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadSettings = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/admin/settings')
+      const body = await res.json()
+      if (res.ok && body?.[0]) {
+        setSettingsForm(body[0])
+      }
+    } catch (e: any) {
+      toast.error('Failed to load settings')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadContent = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/admin/content')
+      const body = await res.json()
+      if (res.ok) {
+        const bestShotsRow = body.find((row: any) => row.key === 'best_shots')
+        if (bestShotsRow && bestShotsRow.value) {
+          try {
+            setBestShotsForm(JSON.parse(bestShotsRow.value))
+          } catch (e) {
+            console.error('Failed to parse best shots content', e)
+          }
+        }
+      }
+    } catch (e: any) {
+      toast.error('Failed to load content')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadActivityLogs = async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams()
+      params.set('page', String(logsPage))
+      params.set('limit', String(LOGS_LIMIT))
+      const res = await fetch(`/api/admin/activity_logs?${params.toString()}`)
+      const body = await res.json()
+      if (!res.ok) throw new Error(body.message || 'Failed to load activity logs')
+      setPaginatedLogs(body.data || [])
+      setLogsTotalPages(body.totalPages || 1)
+      setLogsTotalCount(body.total || 0)
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to load activity logs')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const refreshActiveSection = async () => {
+    if (activeSection === 'dashboard') {
+      await loadOverview()
+    } else if (activeSection === 'albums') {
+      await loadAlbums()
+    } else if (activeSection === 'photos') {
+      await loadPhotos()
+    } else if (activeSection === 'videos') {
+      await loadVideos()
+    } else if (activeSection === 'messages') {
+      await loadMessages()
+    } else if (activeSection === 'settings') {
+      await loadSettings()
+    } else if (activeSection === 'homepage') {
+      await loadContent()
+    } else if (activeSection === 'analytics') {
+      await loadActivityLogs()
+    }
+  }
+
+  useEffect(() => {
+    setAlbumsPage(1)
+    setPhotosPage(1)
+    setVideosPage(1)
+    setMessagesPage(1)
+    setLogsPage(1)
+  }, [searchText, filterState])
+
   useEffect(() => {
     const timeout = window.setTimeout(() => {
-      void loadOverview()
+      if (activeSection === 'dashboard') {
+        void loadOverview()
+      } else if (activeSection === 'albums') {
+        void loadAlbums()
+      } else if (activeSection === 'photos') {
+        void loadPhotos()
+      } else if (activeSection === 'videos') {
+        void loadVideos()
+      } else if (activeSection === 'messages') {
+        void loadMessages()
+      } else if (activeSection === 'analytics') {
+        void loadActivityLogs()
+      }
     }, 200)
     return () => window.clearTimeout(timeout)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchText, filterState])
+  }, [searchText, filterState, activeSection, albumsPage, photosPage, videosPage, messagesPage, logsPage])
+
+  useEffect(() => {
+    if (activeSection === 'dashboard') {
+      void loadOverview()
+    } else if (activeSection === 'albums') {
+      void loadAlbums()
+    } else if (activeSection === 'photos') {
+      void loadPhotos()
+    } else if (activeSection === 'videos') {
+      void loadVideos()
+    } else if (activeSection === 'messages') {
+      void loadMessages()
+    } else if (activeSection === 'settings') {
+      void loadSettings()
+    } else if (activeSection === 'homepage') {
+      void loadContent()
+    } else if (activeSection === 'analytics') {
+      void loadActivityLogs()
+    }
+  }, [activeSection])
+
+  const renderPagination = (currentPage: number, totalPages: number, onPageChange: (p: number) => void) => {
+    if (totalPages <= 1) return null
+    return (
+      <div className="flex items-center justify-between pt-6 border-t border-[#EFE2D8]/60 mt-6">
+        <span className="text-xs text-slate-400 font-medium">
+          Page {currentPage} of {totalPages}
+        </span>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={currentPage === 1}
+            onClick={() => onPageChange(currentPage - 1)}
+            className="p-2 rounded-xl bg-white border border-[#E8D4C9] text-slate-600 hover:border-slate-400 disabled:opacity-40 transition cursor-pointer"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            disabled={currentPage === totalPages}
+            onClick={() => onPageChange(currentPage + 1)}
+            className="p-2 rounded-xl bg-white border border-[#E8D4C9] text-slate-600 hover:border-slate-400 disabled:opacity-40 transition cursor-pointer"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   const categoriesById = useMemo(() => new Map(overview.categories.map((category) => [category.id, category])), [overview.categories])
   
@@ -404,7 +637,7 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
       const body = await response.json()
       if (!response.ok) throw new Error(body.message || 'Save failed')
       toast.success('Saved successfully')
-      await loadOverview()
+      await refreshActiveSection()
       setActiveModal(null)
     } catch (error: any) {
       toast.error(error.message || 'Unable to save change')
@@ -421,7 +654,7 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
       const body = await response.json()
       if (!response.ok) throw new Error(body.message || 'Delete failed')
       toast.success('Deleted successfully')
-      await loadOverview()
+      await refreshActiveSection()
     } catch (error: any) {
       toast.error(error.message || 'Unable to delete item')
     } finally {
@@ -525,7 +758,7 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
       })
       if (!response.ok) throw new Error('Save failed')
       toast.success('Best Shots configuration published!')
-      await loadOverview()
+      await refreshActiveSection()
     } catch (err: any) {
       toast.error(err.message || 'Failed to save changes')
     } finally {
@@ -678,7 +911,7 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
       
       toast.success('Video saved successfully!')
       setActiveModal(null)
-      await loadOverview()
+      await refreshActiveSection()
     } catch (err: any) {
       toast.error(err.message || 'Unable to save video')
     } finally {
@@ -721,7 +954,7 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
 
       toast.success('Album saved successfully!')
       setCoverUploadFile(null)
-      await loadOverview()
+      await refreshActiveSection()
       
       // If creating new album, transition to Step 2 to upload embedded media
       if (!albumForm.id && body.data?.id) {
@@ -772,7 +1005,7 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
       setUploadProgress(100)
       toast.success('Album photos uploaded!')
       setUploadFiles([])
-      await loadOverview()
+      await refreshActiveSection()
     } catch (err: any) {
       toast.error(err.message || 'Upload failed')
     } finally {
@@ -820,7 +1053,7 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
       setUploadProgress(100)
       toast.success('Media files successfully uploaded!')
       setUploadFiles([])
-      await loadOverview()
+      await refreshActiveSection()
     } catch (err: any) {
       toast.error(err.message || 'Upload failed')
     } finally {
@@ -867,7 +1100,7 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
       })
       if (!response.ok) throw new Error('Reordering failed')
       toast.success('Order updated')
-      await loadOverview()
+      await refreshActiveSection()
     } catch (e: any) {
       toast.error(e.message || 'Reorder failed')
     } finally {
@@ -877,13 +1110,15 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
 
   // Nested Album structures & helper states
   const mainAlbums = useMemo(() => {
-    return overview.albums.filter((a) => !a.parent_id || a.parent_id === '')
+    const listToUse = activeSection === 'albums' ? paginatedAlbums : overview.albums
+    return listToUse.filter((a) => !a.parent_id || a.parent_id === '')
       .sort((a, b) => Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0))
-  }, [overview.albums])
+  }, [activeSection, paginatedAlbums, overview.albums])
 
   const subAlbumsByParent = useMemo(() => {
     const map = new Map<string, GalleryAlbum[]>()
-    overview.albums.forEach((a) => {
+    const listToUse = activeSection === 'albums' ? paginatedAlbums : overview.albums
+    listToUse.forEach((a) => {
       if (a.parent_id) {
         const list = map.get(a.parent_id) || []
         list.push(a)
@@ -891,7 +1126,7 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
       }
     })
     return map
-  }, [overview.albums])
+  }, [activeSection, paginatedAlbums, overview.albums])
 
   const toggleCollapsed = (id: string) => {
     setCollapsedAlbums((prev) => ({ ...prev, [id]: !prev[id] }))
@@ -983,7 +1218,7 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
       })
       if (!response.ok) throw new Error('Failed to move sub-album')
       toast.success(`Moved to ${parent.title}`)
-      await loadOverview()
+      await refreshActiveSection()
     } catch (e: any) {
       toast.error(e.message || 'Move failed')
     } finally {
@@ -1001,7 +1236,7 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
       })
       if (!response.ok) throw new Error('Reordering failed')
       toast.success('Order updated')
-      await loadOverview()
+      await refreshActiveSection()
     } catch (e: any) {
       toast.error(e.message || 'Reorder failed')
     } finally {
@@ -1107,7 +1342,7 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
       })
       if (!response.ok) throw new Error('Reordering failed')
       toast.success('Media order updated')
-      await loadOverview()
+      await refreshActiveSection()
     } catch (err: any) {
       toast.error(err.message || 'Failed to update order')
     } finally {
@@ -1126,7 +1361,7 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
       const body = await response.json()
       if (!response.ok) throw new Error(body.message || 'Delete failed')
       toast.success('Media deleted successfully')
-      await loadOverview()
+      await refreshActiveSection()
     } catch (error: any) {
       toast.error(error.message || 'Unable to delete media')
     } finally {
@@ -1972,13 +2207,13 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
                       )}
                     </div>
 
-                    {!overview.photos.length ? (
+                    {!paginatedPhotos.length ? (
                       <div className="text-center py-20 bg-white border border-[#EFE2D8] rounded-[2rem] shadow-sm">
                         <ImagePlus className="h-10 w-10 text-slate-300 mx-auto mb-4" />
                         <h4 className="text-lg font-light text-slate-500">No photos in media library</h4>
                         <button
                           onClick={() => setActiveSection('uploads')}
-                          className="mt-4 px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white rounded-full transition cursor-pointer"
+                          className="mt-4 px-6 py-2.5 bg-slate-900 hover:bg-slate-850 text-xs font-semibold text-white rounded-full transition cursor-pointer"
                         >
                           Upload Files
                         </button>
@@ -1987,7 +2222,7 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
                       <>
                         {mediaViewMode === 'grid' ? (
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                            {overview.photos.map((photo) => {
+                            {paginatedPhotos.map((photo) => {
                               const selected = selectedPhotos.includes(photo.id)
                               return (
                                 <div
@@ -2054,7 +2289,7 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
                                 </tr>
                               </thead>
                               <tbody>
-                                {overview.photos.map((photo) => {
+                                {paginatedPhotos.map((photo) => {
                                   const selected = selectedPhotos.includes(photo.id)
                                   return (
                                     <tr key={photo.id} className="border-b border-[#EFE2D8]/40 hover:bg-[#FBF8F4]/40 transition">
@@ -2104,11 +2339,250 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
                             </table>
                           </div>
                         )}
+                        {renderPagination(photosPage, photosTotalPages, setPhotosPage)}
                       </>
                     )}
                   </div>
                 )}
+                {/* 4. VIDEOS TAB */}
+                {activeSection === 'videos' && (
+                  <div className="space-y-6">
+                    <div className="flex flex-col sm:flex-row gap-4 justify-between sm:items-center bg-white border border-[#EFE2D8] p-4 rounded-3xl shadow-sm">
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => setMediaViewMode('grid')}
+                          className={`p-2 rounded transition cursor-pointer ${mediaViewMode === 'grid' ? 'bg-[#F2EEE6] text-slate-800' : 'text-slate-400'}`}
+                        >
+                          <Grid className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => setMediaViewMode('list')}
+                          className={`p-2 rounded transition cursor-pointer ${mediaViewMode === 'list' ? 'bg-[#F2EEE6] text-slate-800' : 'text-slate-400'}`}
+                        >
+                          <List className="h-4 w-4" />
+                        </button>
+                        <span className="text-xs text-slate-400 font-medium">
+                          {selectedVideos.length} video(s) selected
+                        </span>
+                      </div>
 
+                      <div className="flex gap-2">
+                        {selectedVideos.length > 0 && (
+                          <button
+                            onClick={() => bulkDelete('videos')}
+                            className="px-4 py-2 bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-600 rounded-full text-xs font-semibold uppercase tracking-wider transition cursor-pointer"
+                          >
+                            Delete Selected
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            setYoutubeForm({
+                              id: '',
+                              title: '',
+                              description: '',
+                              youtube_url: '',
+                              thumbnail_url: '',
+                              category_id: overview.categories[0]?.id || '',
+                              featured: false,
+                              published: true,
+                              video_type: 'video',
+                              sort_order: 0,
+                            })
+                            setActiveModal('youtube-video')
+                          }}
+                          className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-full text-xs font-semibold uppercase tracking-wider transition cursor-pointer flex items-center gap-2"
+                        >
+                          <Plus className="h-4 w-4" />
+                          Embed YouTube
+                        </button>
+                      </div>
+                    </div>
+
+                    {!paginatedVideos.length ? (
+                      <div className="text-center py-20 bg-white border border-[#EFE2D8] rounded-[2rem] shadow-sm">
+                        <VideoIcon className="h-10 w-10 text-slate-300 mx-auto mb-4" />
+                        <h4 className="text-lg font-light text-slate-500">No videos in library</h4>
+                        <button
+                          onClick={() => {
+                            setYoutubeForm({
+                              id: '',
+                              title: '',
+                              description: '',
+                              youtube_url: '',
+                              thumbnail_url: '',
+                              category_id: overview.categories[0]?.id || '',
+                              featured: false,
+                              published: true,
+                              video_type: 'video',
+                              sort_order: 0,
+                            })
+                            setActiveModal('youtube-video')
+                          }}
+                          className="mt-4 px-6 py-2.5 bg-slate-900 hover:bg-slate-850 text-xs font-semibold text-white rounded-full transition cursor-pointer"
+                        >
+                          Embed Video
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        {mediaViewMode === 'grid' ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                            {paginatedVideos.map((video) => {
+                              const selected = selectedVideos.includes(video.id)
+                              return (
+                                <div
+                                  key={video.id}
+                                  className={`group relative bg-white border rounded-2xl overflow-hidden cursor-pointer transition ${
+                                    selected ? 'border-rose-500 ring-2 ring-rose-500/10 shadow-md' : 'border-[#EFE2D8] hover:border-slate-400'
+                                  }`}
+                                  onClick={() => {
+                                    setSelectedVideos((prev) =>
+                                      prev.includes(video.id) ? prev.filter((id) => id !== video.id) : [...prev, video.id]
+                                    )
+                                  }}
+                                >
+                                  <div className="aspect-video bg-[#EFE2D8] relative overflow-hidden">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={video.thumbnail_url || '/placeholder-video.jpg'} alt={video.title} className="w-full h-full object-cover" />
+                                    
+                                    <div className="absolute top-3 left-3 w-5 h-5 rounded-full bg-white/90 border border-[#E8D4C9] flex items-center justify-center">
+                                      {selected && <Check className="h-3 w-3 text-rose-500 stroke-[3]" />}
+                                    </div>
+
+                                    {video.video_type === 'short' && (
+                                      <span className="absolute bottom-2 right-2 bg-rose-600 text-white text-[8px] font-bold uppercase tracking-wider px-2 py-0.5 rounded">
+                                        Short
+                                      </span>
+                                    )}
+
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center gap-3 transition">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          setYoutubeForm({
+                                            id: video.id,
+                                            title: video.title,
+                                            description: video.description || '',
+                                            youtube_url: video.youtube_url || video.public_url || '',
+                                            thumbnail_url: video.thumbnail_url || '',
+                                            category_id: video.category_id || '',
+                                            featured: video.featured || false,
+                                            published: video.published !== false,
+                                            video_type: video.video_type || 'video',
+                                            sort_order: video.sort_order || 0,
+                                          })
+                                          setActiveModal('youtube-video')
+                                        }}
+                                        className="p-2 rounded-full bg-white text-slate-800 hover:bg-rose-500 hover:text-white transition cursor-pointer"
+                                      >
+                                        <Pencil className="h-4 w-4" />
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          void deleteEntity('videos', video.id)
+                                        }}
+                                        className="p-2 rounded-full bg-rose-600 text-white hover:bg-rose-700 transition cursor-pointer"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div className="p-3 bg-white">
+                                    <p className="text-xs font-semibold text-slate-700 truncate">{video.title}</p>
+                                    <span className="block text-[9px] uppercase font-bold text-rose-500 mt-1 tracking-wider">
+                                      {video.category?.name || 'Portfolio'}
+                                    </span>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <div className="bg-white border border-[#EFE2D8] rounded-[2rem] overflow-hidden">
+                            <table className="w-full text-left text-xs border-collapse">
+                              <thead>
+                                <tr className="border-b border-[#EFE2D8] text-[10px] uppercase tracking-widest text-slate-400 bg-[#FBF8F4]">
+                                  <th className="p-4 pl-6 w-12">Select</th>
+                                  <th className="p-4">Video preview</th>
+                                  <th className="p-4">Category</th>
+                                  <th className="p-4">Type</th>
+                                  <th className="p-4">Public URL</th>
+                                  <th className="p-4 pr-6 text-right">Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {paginatedVideos.map((video) => {
+                                  const selected = selectedVideos.includes(video.id)
+                                  return (
+                                    <tr key={video.id} className="border-b border-[#EFE2D8]/40 hover:bg-[#FBF8F4]/40 transition">
+                                      <td className="p-4 pl-6">
+                                        <input
+                                          type="checkbox"
+                                          checked={selected}
+                                          onChange={() => {
+                                            setSelectedVideos((prev) =>
+                                              prev.includes(video.id) ? prev.filter((id) => id !== video.id) : [...prev, video.id]
+                                            )
+                                          }}
+                                          className="accent-rose-500"
+                                        />
+                                      </td>
+                                      <td className="p-4 flex items-center gap-3">
+                                        <div className="w-12 h-9 rounded bg-[#EFE2D8] overflow-hidden flex-shrink-0">
+                                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                                          <img src={video.thumbnail_url || '/placeholder-video.jpg'} alt={video.title} className="w-full h-full object-cover" />
+                                        </div>
+                                        <span className="font-semibold text-slate-800">{video.title}</span>
+                                      </td>
+                                      <td className="p-4">
+                                        <span className="text-[10px] font-bold text-rose-500 uppercase tracking-wider">
+                                          {video.category?.name || 'Unlinked'}
+                                        </span>
+                                      </td>
+                                      <td className="p-4 capitalize">{video.video_type || 'video'}</td>
+                                      <td className="p-4 font-mono text-[10px] text-slate-400">{video.public_url}</td>
+                                      <td className="p-4 pr-6 text-right space-x-2">
+                                        <button
+                                          onClick={() => {
+                                            setYoutubeForm({
+                                              id: video.id,
+                                              title: video.title,
+                                              description: video.description || '',
+                                              youtube_url: video.youtube_url || video.public_url || '',
+                                              thumbnail_url: video.thumbnail_url || '',
+                                              category_id: video.category_id || '',
+                                              featured: video.featured || false,
+                                              published: video.published !== false,
+                                              video_type: video.video_type || 'video',
+                                              sort_order: video.sort_order || 0,
+                                            })
+                                            setActiveModal('youtube-video')
+                                          }}
+                                          className="text-slate-500 hover:text-slate-900 font-semibold cursor-pointer"
+                                        >
+                                          Edit
+                                        </button>
+                                        <button
+                                          onClick={() => deleteEntity('videos', video.id)}
+                                          className="text-rose-500 hover:text-rose-700 font-semibold cursor-pointer"
+                                        >
+                                          Delete
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                        {renderPagination(videosPage, videosTotalPages, setVideosPage)}
+                      </>
+                    )}
+                  </div>
+                )}
 
 
                 {/* 5. CATEGORIES & SUBCATEGORIES TAB */}
@@ -2363,32 +2837,79 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
 
                 {/* 7. ANALYTICS */}
                 {activeSection === 'analytics' && (
-                  <div className="grid gap-6 lg:grid-cols-3">
-                    <div className={`${glassCardClass} lg:col-span-2`}>
-                      <h4 className="text-xs uppercase tracking-[0.2em] font-bold text-slate-400 mb-6">Traffic Analytics</h4>
-                      <div className="h-[240px] flex items-end gap-3.5 pt-6 border-b border-slate-100 pb-3">
-                        {[40, 52, 60, 48, 85, 75, 115, 130, 150, 175].map((v, i) => (
-                          <div key={i} className="flex-1 flex flex-col items-center gap-2">
-                            <div
-                              className="w-full rounded-t-lg bg-gradient-to-t from-rose-500 via-peach-400 to-peach-300 cursor-pointer"
-                              style={{ height: `${(v / 185) * 190}px` }}
-                            />
-                            <span className="text-[8px] uppercase tracking-widest font-bold text-slate-400">wk-{i + 1}</span>
-                          </div>
-                        ))}
+                  <div className="space-y-6">
+                    <div className="grid gap-6 lg:grid-cols-3">
+                      <div className={`${glassCardClass} lg:col-span-2`}>
+                        <h4 className="text-xs uppercase tracking-[0.2em] font-bold text-slate-400 mb-6">Traffic Analytics</h4>
+                        <div className="h-[240px] flex items-end gap-3.5 pt-6 border-b border-slate-100 pb-3">
+                          {[40, 52, 60, 48, 85, 75, 115, 130, 150, 175].map((v, i) => (
+                            <div key={i} className="flex-1 flex flex-col items-center gap-2">
+                              <div
+                                className="w-full rounded-t-lg bg-gradient-to-t from-rose-500 via-peach-400 to-peach-300 cursor-pointer"
+                                style={{ height: `${(v / 185) * 190}px` }}
+                              />
+                              <span className="text-[8px] uppercase tracking-widest font-bold text-slate-400">wk-{i + 1}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className={glassCardClass}>
+                        <h4 className="text-xs uppercase tracking-[0.2em] font-bold text-slate-400 mb-6">Popular Albums</h4>
+                        <div className="space-y-3.5">
+                          {overview.albums.slice(0, 4).map((a, i) => (
+                            <div key={a.id} className="flex justify-between items-center p-3.5 bg-[#FBF8F4] rounded-2xl border border-[#EFE2D8]/60">
+                              <span className="text-xs font-semibold text-slate-800 truncate">{a.title}</span>
+                              <span className="text-xs font-mono text-rose-500 font-bold">{Math.round((overview.albums.length - i) * 110 + 35)}</span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
 
                     <div className={glassCardClass}>
-                      <h4 className="text-xs uppercase tracking-[0.2em] font-bold text-slate-400 mb-6">Popular Albums</h4>
-                      <div className="space-y-3.5">
-                        {overview.albums.slice(0, 4).map((a, i) => (
-                          <div key={a.id} className="flex justify-between items-center p-3.5 bg-[#FBF8F4] rounded-2xl border border-[#EFE2D8]/60">
-                            <span className="text-xs font-semibold text-slate-800 truncate">{a.title}</span>
-                            <span className="text-xs font-mono text-rose-500 font-bold">{Math.round((overview.albums.length - i) * 110 + 35)}</span>
-                          </div>
-                        ))}
-                      </div>
+                      <h4 className="text-xs uppercase tracking-[0.2em] font-bold text-slate-400 mb-6">Activity Trail Log</h4>
+                      {!paginatedLogs.length ? (
+                        <p className="text-xs text-slate-400">No logs collected yet</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="border-b border-[#EFE2D8] text-[10px] uppercase tracking-widest text-slate-400 bg-[#FBF8F4]">
+                                <th className="p-4 pl-6">Timestamp</th>
+                                <th className="p-4">Action</th>
+                                <th className="p-4">Entity Type</th>
+                                <th className="p-4">Entity ID</th>
+                                <th className="p-4 pr-6">Details</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {paginatedLogs.map((log) => (
+                                <tr key={log.id} className="border-b border-[#EFE2D8]/40 hover:bg-[#FBF8F4]/40 transition">
+                                  <td className="p-4 pl-6 font-mono text-[10px] text-slate-400">
+                                    {new Date(log.created_at || Date.now()).toLocaleString()}
+                                  </td>
+                                  <td className="p-4 font-semibold text-slate-800 capitalize">
+                                    {log.action?.replace('-', ' ')}
+                                  </td>
+                                  <td className="p-4">
+                                    <span className="px-2.5 py-0.5 rounded-full bg-rose-50 border border-rose-200/40 text-rose-600 font-bold uppercase tracking-wider text-[9px]">
+                                      {log.entity_type}
+                                    </span>
+                                  </td>
+                                  <td className="p-4 font-mono text-[10px] text-slate-400 truncate max-w-[120px]" title={log.entity_id}>
+                                    {log.entity_id}
+                                  </td>
+                                  <td className="p-4 pr-6 text-slate-600">
+                                    {log.metadata?.title ? `"${log.metadata.title}"` : 'N/A'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {renderPagination(logsPage, logsTotalPages, setLogsPage)}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -2399,11 +2920,11 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
                     <div className={`${glassCardClass} lg:col-span-1 max-h-[600px] overflow-y-auto scrollbar-hide`}>
                       <h4 className="text-xs uppercase tracking-[0.2em] font-bold text-slate-400 mb-6">Mailbox Inbox</h4>
                       
-                      {!inboundMessages.length ? (
+                      {!paginatedMessages.length ? (
                         <p className="text-xs text-slate-400">Inbox is empty</p>
                       ) : (
                         <div className="space-y-2">
-                          {inboundMessages.map((msg) => {
+                          {paginatedMessages.map((msg) => {
                             const isUnread = msg.status === 'unread'
                             return (
                               <div
@@ -2434,6 +2955,7 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
                               </div>
                             )
                           })}
+                          {renderPagination(messagesPage, messagesTotalPages, setMessagesPage)}
                         </div>
                       )}
                     </div>
@@ -3540,6 +4062,151 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
                   className="px-5 py-2.5 bg-rose-500 text-white rounded-full hover:opacity-90 text-xs font-semibold uppercase tracking-wider cursor-pointer"
                 >
                   Update metadata
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {/* YouTube Video Modal */}
+      {activeModal === 'youtube-video' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#09090b]/40 backdrop-blur-md">
+          <motion.div
+            initial={{ scale: 0.96, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-full max-w-md bg-white border border-[#EFE2D8] rounded-[2.5rem] p-8 shadow-2xl relative"
+          >
+            <button onClick={() => setActiveModal(null)} className="absolute top-6 right-6 text-slate-400 hover:text-slate-950 cursor-pointer">
+              <X className="h-6 w-6" />
+            </button>
+
+            <h3 className="font-display text-2xl font-light mb-6">
+              {youtubeForm.id ? 'Edit YouTube Video' : 'Embed YouTube Video'}
+            </h3>
+
+            <form onSubmit={handleYoutubeFormSubmit} className="space-y-4">
+              <div>
+                <label className={labelClass}>Video Title</label>
+                <input
+                  type="text"
+                  required
+                  value={youtubeForm.title}
+                  onChange={(e) => setYoutubeForm((p) => ({ ...p, title: e.target.value }))}
+                  className={inputClass}
+                  placeholder="e.g. Beautiful Coastal Wedding"
+                />
+              </div>
+
+              <div>
+                <label className={labelClass}>YouTube URL or Video ID</label>
+                <input
+                  type="text"
+                  required
+                  value={youtubeForm.youtube_url}
+                  onChange={(e) => setYoutubeForm((p) => ({ ...p, youtube_url: e.target.value }))}
+                  className={inputClass}
+                  placeholder="e.g. https://www.youtube.com/watch?v=XXXXXX"
+                />
+                <span className="text-[9px] text-slate-400 mt-1 block">Supports standard URLs, Shorts, and 11-char Video IDs.</span>
+              </div>
+
+              <div>
+                <label className={labelClass}>Category</label>
+                <select
+                  required
+                  value={youtubeForm.category_id}
+                  onChange={(e) => setYoutubeForm((p) => ({ ...p, category_id: e.target.value }))}
+                  className={inputClass}
+                >
+                  <option value="">Select Category...</option>
+                  {overview.categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>Video Type</label>
+                  <select
+                    value={youtubeForm.video_type}
+                    onChange={(e) => setYoutubeForm((p) => ({ ...p, video_type: e.target.value }))}
+                    className={inputClass}
+                  >
+                    <option value="video">Standard Video</option>
+                    <option value="short">YouTube Short</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass}>Display Order</label>
+                  <input
+                    type="number"
+                    value={youtubeForm.sort_order}
+                    onChange={(e) => setYoutubeForm((p) => ({ ...p, sort_order: Number(e.target.value) }))}
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={labelClass}>Custom Thumbnail URL (Optional)</label>
+                <input
+                  type="text"
+                  value={youtubeForm.thumbnail_url}
+                  onChange={(e) => setYoutubeForm((p) => ({ ...p, thumbnail_url: e.target.value }))}
+                  className={inputClass}
+                  placeholder="Leave empty to use YouTube default"
+                />
+              </div>
+
+              <div>
+                <label className={labelClass}>Description</label>
+                <textarea
+                  value={youtubeForm.description}
+                  onChange={(e) => setYoutubeForm((p) => ({ ...p, description: e.target.value }))}
+                  className={textareaClass}
+                  placeholder="Enter short description..."
+                />
+              </div>
+
+              <div className="flex items-center gap-6 p-3.5 bg-[#FBF8F4]/60 border border-[#EFE2D8]/60 rounded-2xl">
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={youtubeForm.published}
+                    onChange={(e) => setYoutubeForm((p) => ({ ...p, published: e.target.checked }))}
+                    className="accent-rose-500 w-4 h-4"
+                  />
+                  Published
+                </label>
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={youtubeForm.featured}
+                    onChange={(e) => setYoutubeForm((p) => ({ ...p, featured: e.target.checked }))}
+                    className="accent-rose-500 w-4 h-4"
+                  />
+                  Featured Focus
+                </label>
+              </div>
+
+              <div className="pt-4 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setActiveModal(null)}
+                  className="px-5 py-2.5 rounded-full border border-[#E8D4C9] text-slate-500 hover:text-slate-800 text-xs font-semibold uppercase tracking-wider"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-5 py-2.5 bg-rose-500 text-white rounded-full hover:opacity-90 text-xs font-semibold uppercase tracking-wider cursor-pointer"
+                >
+                  {saving ? 'Saving...' : 'Embed Video'}
                 </button>
               </div>
             </form>

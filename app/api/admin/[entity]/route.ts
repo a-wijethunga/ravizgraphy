@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireGalleryAdmin } from '@lib/admin-auth'
 import { slugify } from '@/lib/gallery-config'
 import crypto from 'crypto'
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, revalidateTag } from 'next/cache'
 
 const deleteSupabaseStorageFile = async (supabaseClient: any, url: string) => {
   try {
@@ -28,6 +28,21 @@ const ENTITY_TABLES = new Set([
   'settings',
   'activity_logs'
 ])
+
+const TABLE_COLUMNS: Record<string, string> = {
+  categories: 'id, name, slug, description, sort_order, created_at, updated_at',
+  subcategories: 'id, category_id, name, slug, description, sort_order, created_at, updated_at',
+  albums: 'id, title, slug, description, category_id, subcategory_id, cover_photo_id, cover_url, featured, published, seo_title, seo_description, event_date, parent_id, sort_order, created_by, created_at, updated_at',
+  photos: 'id, title, description, tags, alt_text, category_id, subcategory_id, storage_bucket, storage_path, public_url, width, height, file_size, sort_order, featured, published, taken_at, created_by, created_at, updated_at',
+  videos: 'id, title, description, category_id, subcategory_id, storage_bucket, storage_path, public_url, thumbnail_url, duration_seconds, file_size, sort_order, featured, published, captured_at, youtube_url, youtube_id, video_type, created_by, created_at, updated_at',
+  messages: 'id, name, email, phone, subject, message, status, created_at',
+  settings: 'id, website_name, logo_text, hero_title, hero_subtitle, contact_phone, contact_email, contact_address, instagram_url, facebook_url, whatsapp_url, seo_title, seo_description, google_analytics_id, created_at, updated_at',
+  activity_logs: 'id, actor_id, action, entity_type, entity_id, metadata, created_at',
+  site_content: 'key, value, created_at, updated_at',
+  album_photos: 'album_id, photo_id, sort_order, created_at',
+  album_videos: 'album_id, video_id, sort_order, created_at',
+  admins: 'id, user_id, created_at'
+}
 
 const cleanTags = (value: unknown) => {
   if (Array.isArray(value)) return value.map(String).map((tag) => tag.trim()).filter(Boolean)
@@ -153,32 +168,68 @@ export async function GET(req: Request, { params }: { params: Promise<{ entity: 
     return NextResponse.json({ message: 'Unsupported entity' }, { status: 400 })
   }
 
-  const { data: items, error } = await supabase.from(table).select('*')
+  const url = new URL(req.url)
+  const search = url.searchParams.get('search')?.trim()
+  const filter = url.searchParams.get('filter')?.trim()
+
+  // Parse pagination params
+  const page = url.searchParams.has('page') ? Number(url.searchParams.get('page') ?? 1) : null
+  const limit = url.searchParams.has('limit') ? Number(url.searchParams.get('limit') ?? 20) : null
+
+  let query = supabase.from(table).select(TABLE_COLUMNS[table] || '*', { count: 'exact' })
+
+  // Apply search filtering in PostgreSQL
+  if (search) {
+    if (table === 'photos') {
+      query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%,alt_text.ilike.%${search}%`)
+    } else if (table === 'videos') {
+      query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`)
+    } else if (table === 'albums') {
+      query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`)
+    } else if (table === 'messages') {
+      query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%,subject.ilike.%${search}%,message.ilike.%${search}%`)
+    }
+  }
+
+  // Apply filters in PostgreSQL
+  if (filter) {
+    if (filter === 'featured' && ['albums', 'photos', 'videos'].includes(table)) {
+      query = query.eq('featured', true)
+    } else if (filter === 'published' && ['albums', 'photos', 'videos'].includes(table)) {
+      query = query.eq('published', true)
+    } else if (filter === 'drafts' && ['albums', 'photos', 'videos'].includes(table)) {
+      query = query.eq('published', false)
+    }
+  }
+
+  // Sort: ordering is ascending for ordering columns, descending for timeline rows
+  if (['albums', 'photos', 'videos', 'categories', 'subcategories'].includes(table)) {
+    query = query.order('sort_order', { ascending: true })
+  } else {
+    query = query.order('created_at', { ascending: false })
+  }
+
+  // Apply pagination range if requested
+  if (page && limit) {
+    const from = (page - 1) * limit
+    const to = from + limit - 1
+    query = query.range(from, to)
+  }
+
+  const { data: items, error, count } = await query
   if (error) {
     console.error(`Error querying ${table} from Supabase:`, error.message)
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
   }
 
-  const url = new URL(req.url)
-  const search = url.searchParams.get('search')?.trim().toLowerCase()
-
-  let filteredItems = items || []
-
-  // Apply search filtering
-  if (search && ['albums', 'photos', 'videos'].includes(entity)) {
-    filteredItems = filteredItems.filter((item: any) => {
-      const titleMatch = String(item.title ?? '').toLowerCase().includes(search)
-      const descMatch = String(item.description ?? '').toLowerCase().includes(search)
-      return titleMatch || descMatch
-    })
-  }
+  let resultData = items || []
 
   // Hydrate category / subcategory links if applicable
-  if (['albums', 'photos', 'videos'].includes(entity)) {
-    const { data: categories } = await supabase.from('categories').select('*')
-    const { data: subcategories } = await supabase.from('subcategories').select('*')
+  if (['albums', 'photos', 'videos'].includes(entity) && resultData.length > 0) {
+    const { data: categories } = await supabase.from('categories').select(TABLE_COLUMNS.categories) as { data: any[] | null }
+    const { data: subcategories } = await supabase.from('subcategories').select(TABLE_COLUMNS.subcategories) as { data: any[] | null }
     
-    filteredItems = filteredItems.map((item: any) => {
+    resultData = resultData.map((item: any) => {
       const category = categories?.find((c) => String(c.id) === String(item.category_id))
       const subcategory = subcategories?.find((sc) => String(sc.id) === String(item.subcategory_id))
       return {
@@ -189,14 +240,17 @@ export async function GET(req: Request, { params }: { params: Promise<{ entity: 
     })
   }
 
-  // Sort: created_at descending
-  filteredItems.sort((a: any, b: any) => {
-    const timeA = new Date(a.created_at || 0).getTime()
-    const timeB = new Date(b.created_at || 0).getTime()
-    return timeB - timeA
-  })
+  if (page && limit) {
+    return NextResponse.json({
+      data: resultData,
+      total: count || 0,
+      page,
+      limit,
+      totalPages: Math.ceil((count || 0) / limit)
+    })
+  }
 
-  return NextResponse.json(filteredItems)
+  return NextResponse.json(resultData)
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ entity: string }> }) {
@@ -234,6 +288,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ entity:
 
     if (!ENTITY_TABLES.has(entity)) {
       return NextResponse.json({ message: 'Unsupported entity' }, { status: 400 })
+    }
+
+    if (entity === 'categories' || entity === 'subcategories') {
+      revalidateTag(entity)
     }
 
     if (action === 'bulk-delete') {
@@ -321,7 +379,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ entity:
         .from(table)
         .update(payload)
         .eq('id', data.id)
-        .select()
+        .select(TABLE_COLUMNS[table] || '*')
         .single()
       if (error) {
         console.error(`Failed to update ${table} in Supabase:`, error.message)
@@ -336,7 +394,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ entity:
           ...payload,
           id: data.id || crypto.randomUUID()
         })
-        .select()
+        .select(TABLE_COLUMNS[table] || '*')
         .single()
       if (error) {
         console.error(`Failed to insert ${table} in Supabase:`, error.message)
@@ -358,11 +416,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ entity:
     let category = null
     let subcategory = null
     if (savedRecord.category_id) {
-      const { data: cat } = await supabase.from('categories').select('*').eq('id', savedRecord.category_id).maybeSingle()
+      const { data: cat } = await supabase.from('categories').select(TABLE_COLUMNS.categories).eq('id', savedRecord.category_id).maybeSingle() as any
       category = cat
     }
     if (savedRecord.subcategory_id) {
-      const { data: subcat } = await supabase.from('subcategories').select('*').eq('id', savedRecord.subcategory_id).maybeSingle()
+      const { data: subcat } = await supabase.from('subcategories').select(TABLE_COLUMNS.subcategories).eq('id', savedRecord.subcategory_id).maybeSingle() as any
       subcategory = subcat
     }
 
@@ -397,12 +455,16 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ entit
 
   const table = entity
 
+  if (entity === 'categories' || entity === 'subcategories') {
+    revalidateTag(entity)
+  }
+
   try {
     const { data: item, error: fetchErr } = await supabase
       .from(table)
-      .select('*')
+      .select(TABLE_COLUMNS[table] || '*')
       .eq('id', id)
-      .maybeSingle()
+      .maybeSingle() as any
     
     if (fetchErr || !item) {
       console.error(`Item not found for delete from ${table}:`, fetchErr?.message || 'Item empty')

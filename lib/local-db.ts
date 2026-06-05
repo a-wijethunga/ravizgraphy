@@ -1,5 +1,6 @@
 import 'server-only'
 import { getSupabaseClient } from '@/lib/supabaseServer'
+import { unstable_cache } from 'next/cache'
 
 export interface LocalDB {
   categories: any[]
@@ -15,13 +16,49 @@ export interface LocalDB {
   settings: any[]
 }
 
+// Cache categories for 5 minutes
+export const getCachedCategories = unstable_cache(
+  async () => {
+    const supabase = await getSupabaseClient()
+    const { data, error } = await supabase
+      .from('categories')
+      .select('id, name, slug, description, sort_order, created_at, updated_at')
+      .order('sort_order', { ascending: true })
+    if (error) {
+      console.error('Error fetching cached categories:', error.message)
+      throw error
+    }
+    return data || []
+  },
+  ['categories-list'],
+  { revalidate: 300, tags: ['categories'] }
+)
+
+// Cache subcategories for 5 minutes
+export const getCachedSubcategories = unstable_cache(
+  async () => {
+    const supabase = await getSupabaseClient()
+    const { data, error } = await supabase
+      .from('subcategories')
+      .select('id, category_id, name, slug, description, sort_order, created_at, updated_at')
+      .order('sort_order', { ascending: true })
+    if (error) {
+      console.error('Error fetching cached subcategories:', error.message)
+      throw error
+    }
+    return data || []
+  },
+  ['subcategories-list'],
+  { revalidate: 300, tags: ['subcategories'] }
+)
+
 export async function getDB(): Promise<LocalDB> {
   const supabase = await getSupabaseClient()
 
   try {
     const [
-      { data: categories = [], error: catErr },
-      { data: subcategories = [], error: subErr },
+      categories = [],
+      subcategories = [],
       { data: albums = [], error: albErr },
       { data: photos = [], error: photoErr },
       { data: videos = [], error: vidErr },
@@ -32,21 +69,19 @@ export async function getDB(): Promise<LocalDB> {
       { data: messages = [], error: msgErr },
       { data: settings = [], error: settingErr }
     ] = await Promise.all([
-      supabase.from('categories').select('*').order('sort_order', { ascending: true }),
-      supabase.from('subcategories').select('*').order('sort_order', { ascending: true }),
-      supabase.from('albums').select('*').order('sort_order', { ascending: true }),
-      supabase.from('photos').select('*').order('sort_order', { ascending: true }),
-      supabase.from('videos').select('*').order('sort_order', { ascending: true }),
-      supabase.from('album_photos').select('*').order('sort_order', { ascending: true }),
-      supabase.from('album_videos').select('*').order('sort_order', { ascending: true }),
-      supabase.from('site_content').select('*'),
-      supabase.from('activity_logs').select('*').order('created_at', { ascending: false }),
-      supabase.from('messages').select('*').order('created_at', { ascending: false }),
-      supabase.from('settings').select('*')
+      getCachedCategories().catch(() => []),
+      getCachedSubcategories().catch(() => []),
+      supabase.from('albums').select('id, title, slug, description, category_id, subcategory_id, cover_photo_id, cover_url, featured, published, seo_title, seo_description, event_date, parent_id, sort_order, created_by, created_at, updated_at').order('sort_order', { ascending: true }),
+      supabase.from('photos').select('id, title, description, tags, alt_text, category_id, subcategory_id, storage_bucket, storage_path, public_url, width, height, file_size, sort_order, featured, published, taken_at, created_by, created_at, updated_at').order('sort_order', { ascending: true }),
+      supabase.from('videos').select('id, title, description, category_id, subcategory_id, storage_bucket, storage_path, public_url, thumbnail_url, duration_seconds, file_size, sort_order, featured, published, captured_at, youtube_url, youtube_id, video_type, created_by, created_at, updated_at').order('sort_order', { ascending: true }),
+      supabase.from('album_photos').select('album_id, photo_id, sort_order, created_at').order('sort_order', { ascending: true }),
+      supabase.from('album_videos').select('album_id, video_id, sort_order, created_at').order('sort_order', { ascending: true }),
+      supabase.from('site_content').select('key, value, created_at, updated_at'),
+      supabase.from('activity_logs').select('id, actor_id, action, entity_type, entity_id, metadata, created_at').order('created_at', { ascending: false }),
+      supabase.from('messages').select('id, name, email, phone, subject, message, status, created_at').order('created_at', { ascending: false }),
+      supabase.from('settings').select('id, website_name, logo_text, hero_title, hero_subtitle, contact_phone, contact_email, contact_address, instagram_url, facebook_url, whatsapp_url, seo_title, seo_description, google_analytics_id, created_at, updated_at')
     ])
 
-    if (catErr) console.error('Error fetching categories:', catErr.message)
-    if (subErr) console.error('Error fetching subcategories:', subErr.message)
     if (albErr) console.error('Error fetching albums:', albErr.message)
     if (photoErr) console.error('Error fetching photos:', photoErr.message)
     if (vidErr) console.error('Error fetching videos:', vidErr.message)
