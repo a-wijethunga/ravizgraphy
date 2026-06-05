@@ -1,17 +1,8 @@
 import 'server-only'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabase'
 import fs from 'fs'
 import path from 'path'
 import { slugify } from '@/lib/gallery-config'
-
-let supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-if (supabaseUrl.endsWith('/rest/v1/')) {
-  supabaseUrl = supabaseUrl.slice(0, -9)
-} else if (supabaseUrl.endsWith('/rest/v1')) {
-  supabaseUrl = supabaseUrl.slice(0, -8)
-}
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-const supabase = createClient(supabaseUrl, supabaseKey)
 
 const dbFilePath = path.join(process.cwd(), 'local-db.json')
 

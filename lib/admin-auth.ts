@@ -29,6 +29,8 @@ export const requireGalleryAdmin = async () => {
     return { ok: false as const, status: 401, message: 'Unauthorized' }
   }
 
+  await supabase.auth.setSession({ access_token: token, refresh_token: '' })
+
   console.log('[Admin Auth] requireGalleryAdmin success: User authenticated.')
   return { 
     ok: true as const, 
