@@ -3,6 +3,7 @@ import { requireGalleryAdmin } from '@lib/admin-auth'
 import { slugify } from '@/lib/gallery-config'
 import crypto from 'crypto'
 import { revalidatePath, revalidateTag } from 'next/cache'
+import { getExistingColumns, hasColumn } from '@lib/supabase-schema'
 
 const deleteSupabaseStorageFile = async (supabaseClient: any, url: string) => {
   try {
@@ -168,89 +169,158 @@ export async function GET(req: Request, { params }: { params: Promise<{ entity: 
     return NextResponse.json({ message: 'Unsupported entity' }, { status: 400 })
   }
 
-  const url = new URL(req.url)
-  const search = url.searchParams.get('search')?.trim()
-  const filter = url.searchParams.get('filter')?.trim()
+  try {
+    const url = new URL(req.url)
+    const search = url.searchParams.get('search')?.trim()
+    const filter = url.searchParams.get('filter')?.trim()
 
-  // Parse pagination params
-  const page = url.searchParams.has('page') ? Number(url.searchParams.get('page') ?? 1) : null
-  const limit = url.searchParams.has('limit') ? Number(url.searchParams.get('limit') ?? 20) : null
+    // Parse pagination params
+    const page = url.searchParams.has('page') ? Number(url.searchParams.get('page') ?? 1) : null
+    const limit = url.searchParams.has('limit') ? Number(url.searchParams.get('limit') ?? 20) : null
 
-  let query = supabase.from(table).select(TABLE_COLUMNS[table] || '*', { count: 'exact' })
+    // Determine existing columns to select
+    const expected = (TABLE_COLUMNS[table] || '*').split(',').map((c) => c.trim()).filter(Boolean)
+    const existingCols = await getExistingColumns(supabase, table, expected)
 
-  // Apply search filtering in PostgreSQL
-  if (search) {
-    if (table === 'photos') {
-      query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%,alt_text.ilike.%${search}%`)
-    } else if (table === 'videos') {
-      query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`)
-    } else if (table === 'albums') {
-      query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`)
-    } else if (table === 'messages') {
-      query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%,subject.ilike.%${search}%,message.ilike.%${search}%`)
-    }
-  }
+    let query = supabase.from(table).select(existingCols.join(', '), { count: 'exact' })
 
-  // Apply filters in PostgreSQL
-  if (filter) {
-    if (filter === 'featured' && ['albums', 'photos', 'videos'].includes(table)) {
-      query = query.eq('featured', true)
-    } else if (filter === 'published' && ['albums', 'photos', 'videos'].includes(table)) {
-      query = query.eq('published', true)
-    } else if (filter === 'drafts' && ['albums', 'photos', 'videos'].includes(table)) {
-      query = query.eq('published', false)
-    }
-  }
-
-  // Sort: ordering is ascending for ordering columns, descending for timeline rows
-  if (['albums', 'photos', 'videos', 'categories', 'subcategories'].includes(table)) {
-    query = query.order('sort_order', { ascending: true })
-  } else {
-    query = query.order('created_at', { ascending: false })
-  }
-
-  // Apply pagination range if requested
-  if (page && limit) {
-    const from = (page - 1) * limit
-    const to = from + limit - 1
-    query = query.range(from, to)
-  }
-
-  const { data: items, error, count } = await query
-  if (error) {
-    console.error(`Error querying ${table} from Supabase:`, error.message)
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 })
-  }
-
-  let resultData = items || []
-
-  // Hydrate category / subcategory links if applicable
-  if (['albums', 'photos', 'videos'].includes(entity) && resultData.length > 0) {
-    const { data: categories } = await supabase.from('categories').select(TABLE_COLUMNS.categories) as { data: any[] | null }
-    const { data: subcategories } = await supabase.from('subcategories').select(TABLE_COLUMNS.subcategories) as { data: any[] | null }
-    
-    resultData = resultData.map((item: any) => {
-      const category = categories?.find((c) => String(c.id) === String(item.category_id))
-      const subcategory = subcategories?.find((sc) => String(sc.id) === String(item.subcategory_id))
-      return {
-        ...item,
-        category: category ? { id: category.id, name: category.name, slug: category.slug } : null,
-        subcategory: subcategory ? { id: subcategory.id, name: subcategory.name, slug: subcategory.slug } : null,
+    // Apply search filtering in PostgreSQL (defensively avoiding missing fields)
+    if (search) {
+      if (table === 'photos') {
+        query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%,alt_text.ilike.%${search}%`)
+      } else if (table === 'videos') {
+        query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`)
+      } else if (table === 'albums') {
+        query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%`)
+      } else if (table === 'messages') {
+        const hasSubject = existingCols.includes('subject')
+        if (hasSubject) {
+          query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%,subject.ilike.%${search}%,message.ilike.%${search}%`)
+        } else {
+          query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%,message.ilike.%${search}%`)
+        }
       }
-    })
-  }
+    }
 
-  if (page && limit) {
-    return NextResponse.json({
-      data: resultData,
-      total: count || 0,
-      page,
-      limit,
-      totalPages: Math.ceil((count || 0) / limit)
-    })
-  }
+    // Apply filters in PostgreSQL
+    if (filter) {
+      if (filter === 'featured' && ['albums', 'photos', 'videos'].includes(table) && existingCols.includes('featured')) {
+        query = query.eq('featured', true)
+      } else if (filter === 'published' && ['albums', 'photos', 'videos'].includes(table) && existingCols.includes('published')) {
+        query = query.eq('published', true)
+      } else if (filter === 'drafts' && ['albums', 'photos', 'videos'].includes(table) && existingCols.includes('published')) {
+        query = query.eq('published', false)
+      }
+    }
 
-  return NextResponse.json(resultData)
+    // Sort: ordering is ascending for ordering columns, descending for timeline rows
+    if (['albums', 'photos', 'videos', 'categories', 'subcategories'].includes(table) && existingCols.includes('sort_order')) {
+      query = query.order('sort_order', { ascending: true })
+    } else {
+      const hasCreatedAt = existingCols.includes('created_at')
+      if (hasCreatedAt) {
+        query = query.order('created_at', { ascending: false })
+      } else if (table === 'site_content') {
+        query = query.order('key', { ascending: true })
+      }
+    }
+
+    // Apply pagination range if requested
+    if (page && limit) {
+      const from = (page - 1) * limit
+      const to = from + limit - 1
+      query = query.range(from, to)
+    }
+
+    const { data: items, error, count } = await query
+    if (error) {
+      console.error(`Error querying ${table} from Supabase:`, error.message)
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+    }
+
+    let resultData = items || []
+
+    // Fallbacks for settings, messages, videos
+    if (table === 'settings') {
+      resultData = resultData.map((s: any) => ({
+        ...s,
+        website_name: s.website_name || 'RavizGraphy',
+        logo_text: s.logo_text || s.website_name || 'RAVIZGRAPHY',
+        hero_title: s.hero_title || 'Stories Told Through Light & Shadow',
+        hero_subtitle: s.hero_subtitle || 'Luxury Wedding, Event & Portrait Photography in Sri Lanka',
+        contact_phone: s.contact_phone || '+94 76 305 6168',
+        contact_email: s.contact_email || 'ravizthecrash@gmail.com',
+        contact_address: s.contact_address || 'Akuressa, Sri Lanka',
+        instagram_url: s.instagram_url || 'https://instagram.com/ravizgraphy',
+        facebook_url: s.facebook_url || 'https://facebook.com/ravizgraphy',
+        whatsapp_url: s.whatsapp_url || 'https://wa.me/94763056168',
+        seo_title: s.seo_title || 'RavizGraphy | Luxury Photography & Films',
+        seo_description: s.seo_description || 'Elegant wedding stories, event photography, and premium cinema services by Raviz in Sri Lanka.',
+        google_analytics_id: s.google_analytics_id || 'G-XXXXXXXXXX',
+        created_at: s.created_at || new Date().toISOString(),
+        updated_at: s.updated_at || new Date().toISOString()
+      }))
+    } else if (table === 'messages') {
+      resultData = resultData.map((m: any) => ({
+        ...m,
+        subject: m.subject || 'No Subject',
+        status: m.status || 'unread',
+        created_at: m.created_at || new Date().toISOString()
+      }))
+    } else if (table === 'videos') {
+      resultData = resultData.map((v: any) => ({
+        ...v,
+        category_id: v.category_id || null,
+        subcategory_id: v.subcategory_id || null,
+        storage_bucket: v.storage_bucket || 'gallery',
+        storage_path: v.storage_path || v.public_url || '',
+        duration_seconds: v.duration_seconds || null,
+        file_size: v.file_size || null,
+        featured: v.featured ?? false,
+        published: v.published ?? true,
+        captured_at: v.captured_at || null,
+        youtube_url: v.youtube_url || null,
+        youtube_id: v.youtube_id || null,
+        video_type: v.video_type || 'video',
+        created_by: v.created_by || null,
+        created_at: v.created_at || new Date().toISOString(),
+        updated_at: v.updated_at || new Date().toISOString()
+      }))
+    }
+
+    // Hydrate category / subcategory links if applicable
+    if (['albums', 'photos', 'videos'].includes(entity) && resultData.length > 0) {
+      const catCols = await getExistingColumns(supabase, 'categories', (TABLE_COLUMNS.categories || '').split(',').map((s) => s.trim()))
+      const subcatCols = await getExistingColumns(supabase, 'subcategories', (TABLE_COLUMNS.subcategories || '').split(',').map((s) => s.trim()))
+      const { data: categories } = await supabase.from('categories').select(catCols.join(', ')) as { data: any[] | null }
+      const { data: subcategories } = await supabase.from('subcategories').select(subcatCols.join(', ')) as { data: any[] | null }
+      
+      resultData = resultData.map((item: any) => {
+        const category = categories?.find((c) => String(c.id) === String(item.category_id))
+        const subcategory = subcategories?.find((sc) => String(sc.id) === String(item.subcategory_id))
+        return {
+          ...item,
+          category: category ? { id: category.id, name: category.name, slug: category.slug } : null,
+          subcategory: subcategory ? { id: subcategory.id, name: subcategory.name, slug: subcategory.slug } : null,
+        }
+      })
+    }
+
+    if (page && limit) {
+      return NextResponse.json({
+        data: resultData,
+        total: count || 0,
+        page,
+        limit,
+        totalPages: Math.ceil((count || 0) / limit)
+      })
+    }
+
+    return NextResponse.json(resultData)
+  } catch (error: any) {
+    console.error(`GET handler error for ${table}:`, error)
+    return NextResponse.json({ success: false, error: error?.message || 'Server error' }, { status: 500 })
+  }
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ entity: string }> }) {
@@ -271,19 +341,39 @@ export async function POST(req: Request, { params }: { params: Promise<{ entity:
     if (entity === 'content' && action === 'update') {
       const updates = Object.entries(data as Record<string, string>).map(([key, value]) => ({ key, value }))
       
+      const siteContentCols = await getExistingColumns(supabase, 'site_content', ['key', 'value', 'created_at', 'updated_at'])
+
       for (const row of updates) {
+        // Sanitize update columns
+        const sanitizedRow: Record<string, any> = {}
+        for (const col of siteContentCols) {
+          if (col in row) {
+            sanitizedRow[col] = (row as any)[col]
+          }
+        }
+
         const { error } = await supabase
           .from('site_content')
-          .upsert(row)
+          .upsert(sanitizedRow)
         if (error) {
           console.error('Failed to upsert site_content in Supabase:', error.message)
           return NextResponse.json({ success: false, error: error.message }, { status: 500 })
         }
       }
+
+      // Query and return the updated site content immediately
+      const { data: updatedContent, error: fetchErr } = await supabase
+        .from('site_content')
+        .select(siteContentCols.join(', '))
+      if (fetchErr) {
+        console.error('Failed to fetch updated site content:', fetchErr.message)
+        return NextResponse.json({ success: false, error: fetchErr.message }, { status: 500 })
+      }
+
       revalidatePath('/admin')
       revalidatePath('/gallery')
       revalidatePath('/')
-      return NextResponse.json({ success: true })
+      return NextResponse.json({ success: true, data: updatedContent })
     }
 
     if (!ENTITY_TABLES.has(entity)) {
@@ -312,10 +402,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ entity:
 
     if (action === 'bulk-update') {
       const ids = Array.isArray(data.ids) ? data.ids.map(String) : []
-      const values = normalizePayload(entity, data.values ?? {}, auth.session.user.id)
+      const rawPayload = normalizePayload(entity, data.values ?? {}, auth.session.user.id)
       if (!ids.length) return NextResponse.json({ message: 'No ids provided' }, { status: 400 })
 
-      const { error } = await supabase.from(table).update(values).in('id', ids)
+      // Sanitize payload
+      const validCols = await getExistingColumns(supabase, table, Object.keys(rawPayload))
+      const sanitizedPayload: Record<string, any> = {}
+      for (const col of validCols) {
+        if (col in rawPayload) {
+          sanitizedPayload[col] = rawPayload[col]
+        }
+      }
+
+      const { error } = await supabase.from(table).update(sanitizedPayload).in('id', ids)
       if (error) {
         console.error(`Failed bulk update on ${table}:`, error.message)
         return NextResponse.json({ success: false, error: error.message }, { status: 500 })
@@ -372,14 +471,28 @@ export async function POST(req: Request, { params }: { params: Promise<{ entity:
       if (data.storage_bucket) payload.storage_bucket = data.storage_bucket
     }
 
+    // Sanitize payload columns
+    const expectedPayloadCols = Object.keys(payload)
+    const validPayloadCols = await getExistingColumns(supabase, table, expectedPayloadCols)
+    const sanitizedPayload: Record<string, any> = {}
+    for (const col of validPayloadCols) {
+      if (col in payload) {
+        sanitizedPayload[col] = payload[col]
+      }
+    }
+
+    // Determine select columns
+    const selectExpected = (TABLE_COLUMNS[table] || '*').split(',').map((c) => c.trim()).filter(Boolean)
+    const selectCols = await getExistingColumns(supabase, table, selectExpected)
+
     let savedRecord: any = null
 
     if (action === 'update' && data.id) {
       const { data: updated, error } = await supabase
         .from(table)
-        .update(payload)
+        .update(sanitizedPayload)
         .eq('id', data.id)
-        .select(TABLE_COLUMNS[table] || '*')
+        .select(selectCols.join(', '))
         .single()
       if (error) {
         console.error(`Failed to update ${table} in Supabase:`, error.message)
@@ -388,13 +501,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ entity:
       savedRecord = updated
     } else {
       // Create new record
+      const insertPayload = {
+        ...sanitizedPayload,
+        id: data.id || crypto.randomUUID()
+      }
       const { data: inserted, error } = await supabase
         .from(table)
-        .insert({
-          ...payload,
-          id: data.id || crypto.randomUUID()
-        })
-        .select(TABLE_COLUMNS[table] || '*')
+        .insert(insertPayload)
+        .select(selectCols.join(', '))
         .single()
       if (error) {
         console.error(`Failed to insert ${table} in Supabase:`, error.message)
@@ -416,11 +530,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ entity:
     let category = null
     let subcategory = null
     if (savedRecord.category_id) {
-      const { data: cat } = await supabase.from('categories').select(TABLE_COLUMNS.categories).eq('id', savedRecord.category_id).maybeSingle() as any
+      const catCols = await getExistingColumns(supabase, 'categories', (TABLE_COLUMNS.categories || '').split(',').map((s) => s.trim()))
+      const { data: cat } = await supabase.from('categories').select(catCols.join(', ')).eq('id', savedRecord.category_id).maybeSingle() as any
       category = cat
     }
     if (savedRecord.subcategory_id) {
-      const { data: subcat } = await supabase.from('subcategories').select(TABLE_COLUMNS.subcategories).eq('id', savedRecord.subcategory_id).maybeSingle() as any
+      const subcatCols = await getExistingColumns(supabase, 'subcategories', (TABLE_COLUMNS.subcategories || '').split(',').map((s) => s.trim()))
+      const { data: subcat } = await supabase.from('subcategories').select(subcatCols.join(', ')).eq('id', savedRecord.subcategory_id).maybeSingle() as any
       subcategory = subcat
     }
 
@@ -460,9 +576,12 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ entit
   }
 
   try {
+    const expected = (TABLE_COLUMNS[table] || '*').split(',').map((c) => c.trim()).filter(Boolean)
+    const selectCols = await getExistingColumns(supabase, table, expected)
+
     const { data: item, error: fetchErr } = await supabase
       .from(table)
-      .select(TABLE_COLUMNS[table] || '*')
+      .select(selectCols.join(', '))
       .eq('id', id)
       .maybeSingle() as any
     

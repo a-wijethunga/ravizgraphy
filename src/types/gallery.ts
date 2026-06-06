@@ -74,20 +74,20 @@ export interface GalleryVideo {
   id: string
   title: string
   description: string | null
-  category_id: string
-  subcategory_id: string | null
-  storage_bucket: string
-  storage_path: string
+  category_id?: string | null
+  subcategory_id?: string | null
+  storage_bucket?: string
+  storage_path?: string
   public_url: string
   thumbnail_url: string | null
-  duration_seconds: number | null
-  file_size: number | null
+  duration_seconds?: number | null
+  file_size?: number | null
   sort_order: number
-  featured: boolean
-  published: boolean
-  captured_at: string | null
+  featured?: boolean
+  published?: boolean
+  captured_at?: string | null
   created_at: string
-  updated_at: string
+  updated_at?: string
   category?: Pick<GalleryCategory, 'id' | 'name' | 'slug'>
   subcategory?: Pick<GallerySubcategory, 'id' | 'name' | 'slug'> | null
   youtube_url?: string | null

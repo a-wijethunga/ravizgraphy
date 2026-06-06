@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server'
 import { requireGalleryAdmin } from '@lib/admin-auth'
 import { getCachedCategories, getCachedSubcategories } from '@lib/local-db'
+import { getExistingColumns } from '@lib/supabase-schema'
 
-const ALBUM_COLS = 'id, title, slug, description, category_id, subcategory_id, cover_photo_id, cover_url, featured, published, event_date, parent_id, sort_order, created_by, created_at, updated_at'
-const PHOTO_COLS = 'id, title, description, tags, alt_text, category_id, subcategory_id, storage_bucket, storage_path, public_url, width, height, file_size, sort_order, featured, published, taken_at, created_by, created_at, updated_at'
-const VIDEO_COLS = 'id, title, description, category_id, subcategory_id, storage_bucket, storage_path, public_url, thumbnail_url, duration_seconds, file_size, sort_order, featured, published, captured_at, youtube_url, youtube_id, video_type, created_by, created_at, updated_at'
+const ALBUM_COLS_EXPECTED = 'id, title, slug, description, category_id, subcategory_id, cover_photo_id, cover_url, featured, published, event_date, parent_id, sort_order, created_by, created_at, updated_at'
+const PHOTO_COLS_EXPECTED = 'id, title, description, tags, alt_text, category_id, subcategory_id, storage_bucket, storage_path, public_url, width, height, file_size, sort_order, featured, published, taken_at, created_by, created_at, updated_at'
+const VIDEO_COLS_EXPECTED = 'id, title, description, category_id, subcategory_id, storage_bucket, storage_path, public_url, thumbnail_url, duration_seconds, file_size, sort_order, featured, published, captured_at, youtube_url, youtube_id, video_type, created_by, created_at, updated_at'
 
 export async function GET(req: Request) {
   const auth = await requireGalleryAdmin()
@@ -24,10 +25,17 @@ export async function GET(req: Request) {
       getCachedSubcategories().catch(() => [])
     ])
 
-    // 2. Build direct database queries
-    let albumsQuery = supabase.from('albums').select(ALBUM_COLS).order('sort_order', { ascending: true })
-    let photosQuery = supabase.from('photos').select(PHOTO_COLS).order('sort_order', { ascending: true })
-    let videosQuery = supabase.from('videos').select(VIDEO_COLS).order('sort_order', { ascending: true })
+    // 2. Resolve columns dynamically
+    const albumCols = await getExistingColumns(supabase, 'albums', ALBUM_COLS_EXPECTED.split(',').map((s) => s.trim()))
+    const photoCols = await getExistingColumns(supabase, 'photos', PHOTO_COLS_EXPECTED.split(',').map((s) => s.trim()))
+    const videoCols = await getExistingColumns(supabase, 'videos', VIDEO_COLS_EXPECTED.split(',').map((s) => s.trim()))
+    const albumPhotoCols = await getExistingColumns(supabase, 'album_photos', ['album_id', 'photo_id', 'sort_order', 'created_at'])
+    const albumVideoCols = await getExistingColumns(supabase, 'album_videos', ['album_id', 'video_id', 'sort_order', 'created_at'])
+
+    // 3. Build queries
+    let albumsQuery = supabase.from('albums').select(albumCols.join(', ')).order('sort_order', { ascending: true })
+    let photosQuery = supabase.from('photos').select(photoCols.join(', ')).order('sort_order', { ascending: true })
+    let videosQuery = supabase.from('videos').select(videoCols.join(', ')).order('sort_order', { ascending: true })
 
     // Apply search filter if requested (database-level query optimization)
     if (search) {
@@ -38,41 +46,79 @@ export async function GET(req: Request) {
 
     // Apply general status filters
     if (filter === 'featured') {
-      albumsQuery = albumsQuery.eq('featured', true)
-      photosQuery = photosQuery.eq('featured', true)
-      videosQuery = videosQuery.eq('featured', true)
+      if (albumCols.includes('featured')) albumsQuery = albumsQuery.eq('featured', true)
+      if (photoCols.includes('featured')) photosQuery = photosQuery.eq('featured', true)
+      if (videoCols.includes('featured')) videosQuery = videosQuery.eq('featured', true)
     } else if (filter === 'published') {
-      albumsQuery = albumsQuery.eq('published', true)
-      photosQuery = photosQuery.eq('published', true)
-      videosQuery = videosQuery.eq('published', true)
+      if (albumCols.includes('published')) albumsQuery = albumsQuery.eq('published', true)
+      if (photoCols.includes('published')) photosQuery = photosQuery.eq('published', true)
+      if (videoCols.includes('published')) videosQuery = videosQuery.eq('published', true)
     } else if (filter === 'drafts') {
-      albumsQuery = albumsQuery.eq('published', false)
-      photosQuery = photosQuery.eq('published', false)
-      videosQuery = videosQuery.eq('published', false)
+      if (albumCols.includes('published')) albumsQuery = albumsQuery.eq('published', false)
+      if (photoCols.includes('published')) photosQuery = photosQuery.eq('published', false)
+      if (videoCols.includes('published')) videosQuery = videosQuery.eq('published', false)
     }
 
     // Limit photos and videos to prevent massive transfers on first render
     photosQuery = photosQuery.range(0, 119)
     videosQuery = videosQuery.range(0, 79)
 
+    let albumPhotosQuery = supabase.from('album_photos').select(albumPhotoCols.join(', '))
+    if (albumPhotoCols.includes('sort_order')) {
+      albumPhotosQuery = albumPhotosQuery.order('sort_order', { ascending: true })
+    }
+
+    let albumVideosQuery = supabase.from('album_videos').select(albumVideoCols.join(', '))
+    if (albumVideoCols.includes('sort_order')) {
+      albumVideosQuery = albumVideosQuery.order('sort_order', { ascending: true })
+    }
+
     // Execute queries in parallel
     const [
-      { data: albums = [] },
-      { data: photos = [] },
-      { data: videos = [] },
-      { data: albumPhotos = [] },
-      { data: albumVideos = [] },
-      { count: totalPhotosCount },
-      { count: totalVideosCount }
+      albumsRes,
+      photosRes,
+      videosRes,
+      albumPhotosRes,
+      albumVideosRes,
+      totalPhotosRes,
+      totalVideosRes
     ] = await Promise.all([
       albumsQuery,
       photosQuery,
       videosQuery,
-      supabase.from('album_photos').select('album_id, photo_id, sort_order, created_at'),
-      supabase.from('album_videos').select('album_id, video_id, sort_order, created_at'),
+      albumPhotosQuery,
+      albumVideosQuery,
       supabase.from('photos').select('*', { count: 'exact', head: true }),
       supabase.from('videos').select('*', { count: 'exact', head: true })
     ])
+
+    const albums = (albumsRes.data || []) as any[]
+    const photos = (photosRes.data || []) as any[]
+    const videos = (videosRes.data || []) as any[]
+    const albumPhotos = (albumPhotosRes.data || []) as any[]
+    const albumVideos = (albumVideosRes.data || []) as any[]
+    const totalPhotosCount = totalPhotosRes.count
+    const totalVideosCount = totalVideosRes.count
+
+    // Fallbacks for videos
+    const fallbackVideos = (videos || []).map((v: any) => ({
+      ...v,
+      category_id: v.category_id || null,
+      subcategory_id: v.subcategory_id || null,
+      storage_bucket: v.storage_bucket || 'gallery',
+      storage_path: v.storage_path || v.public_url || '',
+      duration_seconds: v.duration_seconds || null,
+      file_size: v.file_size || null,
+      featured: v.featured ?? false,
+      published: v.published ?? true,
+      captured_at: v.captured_at || null,
+      youtube_url: v.youtube_url || null,
+      youtube_id: v.youtube_id || null,
+      video_type: v.video_type || 'video',
+      created_by: v.created_by || null,
+      created_at: v.created_at || new Date().toISOString(),
+      updated_at: v.updated_at || new Date().toISOString()
+    }))
 
     // Sort in memory by created_at desc for timeline
     const sortDesc = (a: any, b: any) =>
@@ -80,13 +126,15 @@ export async function GET(req: Request) {
 
     const sortedAlbums = [...(albums || [])].sort(sortDesc)
     const sortedPhotos = [...(photos || [])].sort(sortDesc)
-    const sortedVideos = [...(videos || [])].sort(sortDesc)
+    const sortedVideos = [...fallbackVideos].sort(sortDesc)
 
     // Helper to hydrate category/subcategory
     const hydrateRelations = (items: any[]) => {
+      const cats = categories as any[]
+      const subcats = subcategories as any[]
       return items.map((item) => {
-        const category = categories.find((c) => String(c.id) === String(item.category_id))
-        const subcategory = subcategories.find((sc) => String(sc.id) === String(item.subcategory_id))
+        const category = item.category_id ? cats.find((c) => String(c.id) === String(item.category_id)) : null
+        const subcategory = item.subcategory_id ? subcats.find((sc) => String(sc.id) === String(item.subcategory_id)) : null
         return {
           ...item,
           category: category ? { id: category.id, name: category.name, slug: category.slug } : null,

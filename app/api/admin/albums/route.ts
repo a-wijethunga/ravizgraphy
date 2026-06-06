@@ -3,8 +3,9 @@ import { requireGalleryAdmin } from '@lib/admin-auth'
 import { slugify } from '@/lib/gallery-config'
 import crypto from 'crypto'
 import { revalidatePath } from 'next/cache'
+import { getExistingColumns } from '@lib/supabase-schema'
 
-const ALBUM_SELECT_COLUMNS = 'id, title, slug, description, category_id, subcategory_id, cover_photo_id, cover_url, featured, published, seo_title, seo_description, event_date, parent_id, sort_order, created_by, created_at, updated_at'
+const ALBUM_SELECT_COLUMNS_EXPECTED = 'id, title, slug, description, category_id, subcategory_id, cover_photo_id, cover_url, featured, published, seo_title, seo_description, event_date, parent_id, sort_order, created_by, created_at, updated_at'
 
 export async function GET(req: Request) {
   const auth = await requireGalleryAdmin()
@@ -17,52 +18,62 @@ export async function GET(req: Request) {
   const page = url.searchParams.has('page') ? Number(url.searchParams.get('page') ?? 1) : null
   const limit = url.searchParams.has('limit') ? Number(url.searchParams.get('limit') ?? 12) : null
 
-  let query = supabase
-    .from('albums')
-    .select(ALBUM_SELECT_COLUMNS, { count: 'exact' })
-    .order('sort_order', { ascending: true })
+  try {
+    const selectCols = await getExistingColumns(supabase, 'albums', ALBUM_SELECT_COLUMNS_EXPECTED.split(',').map((s) => s.trim()))
 
-  // Apply search in database
-  if (search) {
-    query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%,slug.ilike.%${search}%`)
-  }
+    let query = supabase
+      .from('albums')
+      .select(selectCols.join(', '), { count: 'exact' })
 
-  // Apply filter in database
-  if (filter) {
-    if (filter === 'featured') {
-      query = query.eq('featured', true)
-    } else if (filter === 'published') {
-      query = query.eq('published', true)
-    } else if (filter === 'drafts') {
-      query = query.eq('published', false)
+    if (selectCols.includes('sort_order')) {
+      query = query.order('sort_order', { ascending: true })
     }
+
+    // Apply search in database
+    if (search) {
+      query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%,slug.ilike.%${search}%`)
+    }
+
+    // Apply filter in database
+    if (filter) {
+      if (filter === 'featured' && selectCols.includes('featured')) {
+        query = query.eq('featured', true)
+      } else if (filter === 'published' && selectCols.includes('published')) {
+        query = query.eq('published', true)
+      } else if (filter === 'drafts' && selectCols.includes('published')) {
+        query = query.eq('published', false)
+      }
+    }
+
+    // Apply pagination range if requested
+    if (page && limit) {
+      const from = (page - 1) * limit
+      const to = from + limit - 1
+      query = query.range(from, to)
+    }
+
+    const { data: albums, error, count } = await query
+
+    if (error) {
+      console.error('Failed to get albums from Supabase:', error.message)
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+    }
+
+    if (page && limit) {
+      return NextResponse.json({
+        data: albums || [],
+        total: count || 0,
+        page,
+        limit,
+        totalPages: Math.ceil((count || 0) / limit)
+      })
+    }
+
+    return NextResponse.json(albums || [])
+  } catch (err: any) {
+    console.error('Albums GET error:', err)
+    return NextResponse.json({ success: false, error: err?.message || 'Server error' }, { status: 500 })
   }
-
-  // Apply pagination range if requested
-  if (page && limit) {
-    const from = (page - 1) * limit
-    const to = from + limit - 1
-    query = query.range(from, to)
-  }
-
-  const { data: albums, error, count } = await query
-
-  if (error) {
-    console.error('Failed to get albums from Supabase:', error.message)
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 })
-  }
-
-  if (page && limit) {
-    return NextResponse.json({
-      data: albums || [],
-      total: count || 0,
-      page,
-      limit,
-      totalPages: Math.ceil((count || 0) / limit)
-    })
-  }
-
-  return NextResponse.json(albums || [])
 }
 
 export async function POST(req: Request) {
@@ -100,12 +111,22 @@ export async function POST(req: Request) {
       updated_at: now
     }
 
+    const selectCols = await getExistingColumns(supabase, 'albums', ALBUM_SELECT_COLUMNS_EXPECTED.split(',').map((s) => s.trim()))
+
+    // Sanitize payload columns
+    const sanitizedPayload: Record<string, any> = {}
+    for (const col of selectCols) {
+      if (col in payload) {
+        sanitizedPayload[col] = (payload as any)[col]
+      }
+    }
+
     if (action === 'update' || data.id) {
       const { data: updated, error } = await supabase
         .from('albums')
-        .update(payload)
+        .update(sanitizedPayload)
         .eq('id', id)
-        .select(ALBUM_SELECT_COLUMNS)
+        .select(selectCols.join(', '))
         .single()
       if (error) {
         console.error('Failed to update album in Supabase:', error.message)
@@ -116,14 +137,18 @@ export async function POST(req: Request) {
       revalidatePath('/')
       return NextResponse.json({ success: true, data: updated })
     } else {
+      const insertPayload: Record<string, any> = {
+        ...sanitizedPayload,
+        id,
+      }
+      if (selectCols.includes('created_at')) {
+        insertPayload.created_at = data.created_at || now
+      }
+
       const { data: inserted, error } = await supabase
         .from('albums')
-        .insert({
-          ...payload,
-          id,
-          created_at: data.created_at || now
-        })
-        .select(ALBUM_SELECT_COLUMNS)
+        .insert(insertPayload)
+        .select(selectCols.join(', '))
         .single()
       if (error) {
         console.error('Failed to insert album in Supabase:', error.message)
