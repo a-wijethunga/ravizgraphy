@@ -40,6 +40,7 @@ import {
   MessageSquare,
   Globe,
   Database,
+  HardDrive,
   Calendar,
   Image as ImageIcon
 } from 'lucide-react'
@@ -280,6 +281,11 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
   const [settingsForm, setSettingsForm] = useState(initialSettingsForm)
   const [activityLogs, setActivityLogs] = useState<any[]>([])
 
+  // Live storage statistics state
+  const [storageStats, setStorageStats] = useState<any | null>(null)
+  const [storageError, setStorageError] = useState<string | null>(null)
+  const [loadingStorage, setLoadingStorage] = useState(false)
+
   const [bestShotsForm, setBestShotsForm] = useState({
     title: 'My Best',
     highlight: 'Shots',
@@ -344,6 +350,24 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
       toast.error(error.message || 'Unable to load gallery CMS data')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadStorageStats = async () => {
+    setLoadingStorage(true)
+    setStorageError(null)
+    try {
+      const res = await fetch('/api/admin/storage')
+      const body = await res.json()
+      if (!res.ok || !body.success) {
+        throw new Error(body.message || 'Unable to calculate storage usage.')
+      }
+      setStorageStats(body.stats)
+    } catch (e: any) {
+      console.error('Failed to load storage stats:', e)
+      setStorageError(e.message || 'Unable to calculate storage usage.')
+    } finally {
+      setLoadingStorage(false)
     }
   }
 
@@ -487,6 +511,7 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
   }
 
   const refreshActiveSection = async () => {
+    void loadStorageStats()
     if (activeSection === 'dashboard') {
       await loadOverview()
     } else if (activeSection === 'albums') {
@@ -505,6 +530,10 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
       await loadActivityLogs()
     }
   }
+
+  useEffect(() => {
+    void loadStorageStats()
+  }, [])
 
   useEffect(() => {
     setAlbumsPage(1)
@@ -718,6 +747,7 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
         photos: [...prev.photos, newPhoto]
       }))
       toast.success('Image uploaded and added to Best Shots!')
+      void loadStorageStats()
     } catch (err: any) {
       toast.error(err.message || 'Failed to upload image')
     } finally {
@@ -1642,20 +1672,83 @@ export default function AdminDashboardClient({ stats }: { stats: DashboardStats 
 
                       {/* Right Timeline widgets */}
                       <div className="space-y-6">
-                        <div className={glassCardClass}>
-                          <h4 className="text-xs uppercase tracking-[0.2em] font-bold text-slate-400 mb-4 flex items-center gap-2">
-                            <Database className="h-4 w-4 text-rose-500" />
-                            Storage Tracker
-                          </h4>
-                          <div className="space-y-2">
-                            <div className="flex justify-between text-xs text-slate-500">
-                              <span>Database footprint</span>
-                              <span className="font-mono text-slate-800 font-semibold">{dbSizeMB} MB / 10 MB</span>
-                            </div>
-                            <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
-                              <div className="h-full bg-rose-400 rounded-full" style={{ width: `${Math.min((parseFloat(dbSizeMB) / 10) * 100, 100)}%` }} />
-                            </div>
+                        <div className={`${glassCardClass} relative overflow-hidden group`}>
+                          <div className="flex justify-between items-center mb-6">
+                            <h4 className="text-xs uppercase tracking-[0.2em] font-bold text-slate-400 flex items-center gap-2">
+                              <HardDrive className="h-4 w-4 text-rose-500" />
+                              Storage Monitor
+                            </h4>
+                            {loadingStorage && (
+                              <span className="text-[9px] text-rose-500 font-semibold uppercase tracking-widest animate-pulse">
+                                Refreshing...
+                              </span>
+                            )}
                           </div>
+
+                          {storageError ? (
+                            <div className="flex flex-col items-center justify-center py-6 text-center">
+                              <p className="text-xs text-rose-500 font-medium">
+                                Unable to calculate storage usage.
+                              </p>
+                            </div>
+                          ) : !storageStats ? (
+                            <div className="flex flex-col items-center justify-center py-6 text-center space-y-2">
+                              <Loader2 className="h-5 w-5 text-rose-500 animate-spin" />
+                              <p className="text-[11px] text-slate-400">Calculating storage...</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-6">
+                              <div className="space-y-1.5">
+                                <div className="flex justify-between items-baseline">
+                                  <span className="text-xs text-slate-500 font-medium">Storage Used</span>
+                                  <span className="font-mono font-semibold text-slate-800 text-sm">
+                                    {storageStats.storageUsedFormatted}
+                                    <span className="text-slate-400 font-normal"> / {storageStats.storageLimitFormatted}</span>
+                                  </span>
+                                </div>
+                                
+                                <div className="flex justify-between text-[11px] text-slate-400">
+                                  <span>Remaining: {storageStats.remainingStorageFormatted}</span>
+                                  <span className="font-semibold text-slate-700">{storageStats.usagePercentage}%</span>
+                                </div>
+                              </div>
+
+                              <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden relative shadow-inner">
+                                <motion.div
+                                  className={`h-full rounded-full ${
+                                    storageStats.usagePercentage < 70
+                                      ? 'bg-emerald-500'
+                                      : storageStats.usagePercentage < 90
+                                      ? 'bg-amber-500'
+                                      : 'bg-rose-500'
+                                  }`}
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${storageStats.usagePercentage}%` }}
+                                  transition={{ duration: 1, ease: 'easeOut' }}
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-3 gap-2.5 pt-1">
+                                <div className="bg-[#FBF8F4] border border-[#EFE2D8]/50 p-2.5 rounded-2xl text-center space-y-1 hover:border-[#E8D4C9] transition duration-300">
+                                  <ImageIcon className="h-3.5 w-3.5 text-rose-500 mx-auto" />
+                                  <span className="block text-[9px] text-slate-400 uppercase tracking-wider font-semibold">Images</span>
+                                  <span className="block text-xs font-bold text-slate-800">{storageStats.totalImages}</span>
+                                </div>
+                                
+                                <div className="bg-[#FBF8F4] border border-[#EFE2D8]/50 p-2.5 rounded-2xl text-center space-y-1 hover:border-[#E8D4C9] transition duration-300">
+                                  <VideoIcon className="h-3.5 w-3.5 text-peach-500 mx-auto" />
+                                  <span className="block text-[9px] text-slate-400 uppercase tracking-wider font-semibold">Videos</span>
+                                  <span className="block text-xs font-bold text-slate-800">{storageStats.totalVideos}</span>
+                                </div>
+                                
+                                <div className="bg-[#FBF8F4] border border-[#EFE2D8]/50 p-2.5 rounded-2xl text-center space-y-1 hover:border-[#E8D4C9] transition duration-300">
+                                  <Database className="h-3.5 w-3.5 text-sky-500 mx-auto" />
+                                  <span className="block text-[9px] text-slate-400 uppercase tracking-wider font-semibold">Files</span>
+                                  <span className="block text-xs font-bold text-slate-800">{storageStats.totalFiles}</span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         <div className={glassCardClass}>
